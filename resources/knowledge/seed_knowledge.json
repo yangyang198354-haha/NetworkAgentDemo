@@ -1,0 +1,78 @@
+[
+  {
+    "doc_id": "SEED-001",
+    "title": "MAC 地址漂移 — 端口安全加固方案",
+    "content": "MAC 地址在同一 VLAN 中出现在多个端口时，表明可能存在二层环路或 MAC 欺骗攻击。修复方案为在接入端口启用 port-security 限制学习 MAC 数量。建议设置 maximum 为 2，violation mode 为 restrict。同时检查 STP 拓扑和 bpduguard 配置避免环路。",
+    "alert_type": "MAC_FLAPPING",
+    "doc_type": "case",
+    "template_id": "TPL-MAC-PORT-SECURITY"
+  },
+  {
+    "doc_id": "SEED-002",
+    "title": "MAC 地址漂移 — STP 拓扑检查",
+    "content": "MAC 漂移常见于 STP 拓扑变更。排查步骤包括: 检查生成树端口角色（root/designated/blocking），确认 portfast 端口是否配置了 bpduguard 和 bpdufilter，查看是否存在单向链路导致的环路。修复方案包括清除 MAC 地址表并重置 STP。",
+    "alert_type": "MAC_FLAPPING",
+    "doc_type": "plan",
+    "template_id": "TPL-MAC-CLEAR"
+  },
+  {
+    "doc_id": "SEED-003",
+    "title": "MAC 地址漂移 — 运维手册",
+    "content": "完整排查步骤: 1) show mac address-table 定位漂移端口和 MAC; 2) show logging 查看 syslog 中的 MACFLAP_NOTIF 消息; 3) 在接入端口执行 show interface 检查错误计数; 4) 启用 port-security 限制 MAC 学习数量; 5) 检查 VLAN 配置避免跨 VLAN 环路。",
+    "alert_type": "MAC_FLAPPING",
+    "doc_type": "plan"
+  },
+  {
+    "doc_id": "SEED-004",
+    "title": "端口 Down — 自动恢复方案",
+    "content": "接口因链路故障或配置错误进入 down 状态。常见原因包括: 对端设备未启动、光纤链路物理中断、端口被管理员 shutdown。修复时需要在接口下执行 no shutdown 命令并设置描述为 'Auto-recovered by Agent' 以便审计追踪。",
+    "alert_type": "PORT_DOWN",
+    "doc_type": "case",
+    "template_id": "TPL-PORT-ENABLE"
+  },
+  {
+    "doc_id": "SEED-005",
+    "title": "端口 Down — 管理员关闭场景处理",
+    "content": "当端口因管理员手动 shutdown 而 down 时，需要先确认关闭原因再决定是否恢复。如果是设备维护期间的临时关闭，在维护窗口结束后取消 shutdown。如果是安全事件导致的隔离，需要先排查安全问题再恢复。",
+    "alert_type": "PORT_DOWN",
+    "doc_type": "plan",
+    "template_id": "TPL-PORT-DISABLE"
+  },
+  {
+    "doc_id": "SEED-006",
+    "title": "端口 Down — 物理层排查指南",
+    "content": "完整排查步骤: 1) show interface status 检查端口管理和协议状态; 2) show interface {iface} 查看详细错误计数（CRC、frame、input errors）; 3) 使用 show interfaces transceiver 检查光模块光功率是否在正常范围; 4) 更换光模块或光纤进行交叉测试; 5) 确认对端设备端口状态。",
+    "alert_type": "PORT_DOWN",
+    "doc_type": "plan"
+  },
+  {
+    "doc_id": "SEED-007",
+    "title": "CPU 利用率过高 — 进程分析与限速",
+    "content": "CPU 突发性升高常由 SNMP 轮询风暴、路由协议震荡或环路导致的控制平面流量引起。通过 show processes cpu 定位 top 进程后，可使用控制平面策略（CoPP）限制发往 CPU 的管理流量速率。对 SNMP 设置 8000 bps、SSH 设置 16000 bps、ICMP 设置 8000 bps 的典型限速值。",
+    "alert_type": "CPU_HIGH",
+    "doc_type": "case",
+    "template_id": "TPL-CPU-RATE-LIMIT"
+  },
+  {
+    "doc_id": "SEED-008",
+    "title": "CPU 利用率过高 — 应急处理流程",
+    "content": "当 CPU 持续超过 80% 时，按以下步骤排查: 1) show processes cpu sorted 查看最高 CPU 进程; 2) 检查是否遭受 DDoS 攻击（IP Input 进程高）; 3) 如果没有攻击迹象，考虑 SNMP 轮询频率过高导致 SNMP ENGINE 进程高; 4) 通过 ACL 临时限制 SNMP 来源 IP 或降低轮询频率; 5) 必要时执行 clear process 重启问题进程。",
+    "alert_type": "CPU_HIGH",
+    "doc_type": "plan",
+    "template_id": "TPL-CPU-PROCESS-RESTART"
+  },
+  {
+    "doc_id": "SEED-009",
+    "title": "CPU 利用率过高 — SNMP 优化",
+    "content": "SNMP 轮询是导致 CPU 高的常见原因。优化建议: 1) 减少轮询频率（从 30s 调整到 120s）; 2) 使用 SNMPv3 代替 SNMPv2c 减少认证开销; 3) 限制同时轮询的 OID 数量; 4) 启用 SNMP 视图限制可查询的 MIB 子树; 5) 监控系统分散轮询时间窗口避免集中冲击。",
+    "alert_type": "CPU_HIGH",
+    "doc_type": "plan"
+  },
+  {
+    "doc_id": "SEED-010",
+    "title": "通用配置变更备份规范",
+    "content": "任何配置变更前必须通过 show running-config 备份当前配置。变更完成后确认设备运行正常再执行 write memory 保存。备份文件命名规范: {hostname}_{date}_{change_type}.cfg。所有配置变更操作必须记录审计日志，包含操作人、时间、变更内容和变更原因。",
+    "alert_type": "CPU_HIGH",
+    "doc_type": "template"
+  }
+]

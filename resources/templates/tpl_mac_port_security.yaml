@@ -1,0 +1,17 @@
+template_id: TPL-MAC-PORT-SECURITY
+description: "在接入端口启用 port-security 限制 MAC 学习数量，防止 MAC 漂移"
+alert_type: MAC_FLAPPING
+risk_level: MEDIUM
+params_schema:
+  iface_name: string
+  max_mac: integer
+  violation_mode: string
+risk_hints:
+  - "port-security 可能阻止合法的新设备接入该端口"
+  - "violation_mode 设为 shutdown 将导致端口在违规时自动关闭"
+  - "建议 violation_mode 使用 restrict（仅告警不关闭）"
+template: |
+  interface {{ iface_name }}
+   switchport port-security
+   switchport port-security maximum {{ max_mac }}
+   switchport port-security violation {{ violation_mode }}

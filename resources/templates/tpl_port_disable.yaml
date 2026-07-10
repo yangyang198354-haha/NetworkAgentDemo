@@ -1,0 +1,14 @@
+template_id: TPL-PORT-DISABLE
+description: "暂时关闭问题端口以隔离故障"
+alert_type: PORT_DOWN
+risk_level: HIGH
+params_schema:
+  iface_name: string
+  desc: string
+risk_hints:
+  - "shutdown 操作将立即中断该端口的所有通信"
+  - "确认无关键业务运行在该端口上"
+template: |
+  interface {{ iface_name }}
+   shutdown
+   description {{ desc }}

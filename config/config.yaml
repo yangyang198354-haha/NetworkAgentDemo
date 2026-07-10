@@ -1,0 +1,50 @@
+# NetworkAgentDemo — Default Configuration
+# MOD-016 ConfigManager loads this file on startup.
+# Environment variables take precedence over config values.
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+inspection:
+  interval_minutes: 5
+
+diagnosis:
+  timeout_seconds: 30
+  retry_max: 3
+  retry_backoff_base: 1.0
+
+alert:
+  ttl_minutes: 15
+  dedup_cache_size: 100
+
+rag:
+  similarity_threshold: 0.6
+  chroma_persist_path: "./data/chroma_db/"
+  collection_name: "network_knowledge"
+  embedding_model: "text-embedding-3-small"
+
+logging:
+  level: "INFO"
+  audit_enabled: true
+  operations_log_path: "./logs/"
+  audit_log_path: "./logs/audit.log"
+
+templates:
+  directory: "./resources/templates/"
+
+knowledge:
+  seed_file: "./resources/knowledge/seed_knowledge.json"
+
+# Device credentials — passwords should be set via environment variables:
+#   DEVICE_CORE-SW-01_PASSWORD
+#   DEVICE_ACCESS-SW-02_PASSWORD
+devices:
+  Core-SW-01:
+    username: admin
+    password: ""  # Set via DEVICE_CORE-SW-01_PASSWORD env var
+    port: 22
+  Access-SW-02:
+    username: admin
+    password: ""  # Set via DEVICE_ACCESS-SW-02_PASSWORD env var
+    port: 22

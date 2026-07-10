@@ -1,0 +1,13 @@
+template_id: TPL-MAC-CLEAR
+description: "清除动态 MAC 地址表并重置接口计数器"
+alert_type: MAC_FLAPPING
+risk_level: LOW
+params_schema:
+  iface_name: string
+risk_hints:
+  - "清除 MAC 表会导致短暂的未知单播泛洪"
+template: |
+  interface {{ iface_name }}
+   shutdown
+   no shutdown
+  clear mac address-table dynamic

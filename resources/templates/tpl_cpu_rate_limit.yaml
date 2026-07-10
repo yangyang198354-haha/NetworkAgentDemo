@@ -1,0 +1,28 @@
+template_id: TPL-CPU-RATE-LIMIT
+description: "配置控制平面策略（CoPP），限制发往 CPU 的管理流量速率"
+alert_type: CPU_HIGH
+risk_level: MEDIUM
+params_schema:
+  snmp_rate: integer
+  ssh_rate: integer
+  icmp_rate: integer
+risk_hints:
+  - "速率限制过低可能影响正常管理流量（SNMP 监控、SSH 登录）"
+  - "建议先在非高峰时段验证配置效果"
+template: |
+  control-plane
+   service-policy input CoPP-POLICY
+  !
+  ip access-list extended SNMP-ACL
+   permit udp any any eq snmp
+  !
+  class-map match-all SNMP-CLASS
+   match access-group name SNMP-ACL
+  !
+  policy-map CoPP-POLICY
+   class SNMP-CLASS
+    police {{ snmp_rate }} 8000 exceed-action drop
+   class SSH-CLASS
+    police {{ ssh_rate }} 8000 exceed-action drop
+   class ICMP-CLASS
+    police {{ icmp_rate }} 8000 exceed-action drop

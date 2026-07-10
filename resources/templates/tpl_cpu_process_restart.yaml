@@ -1,0 +1,12 @@
+template_id: TPL-CPU-PROCESS-RESTART
+description: "重启高 CPU 占用的进程以恢复正常运行"
+alert_type: CPU_HIGH
+risk_level: HIGH
+params_schema:
+  process_name: string
+risk_hints:
+  - "进程重启可能导致短暂的网络中断"
+  - "建议先确认进程重启的影响范围"
+  - "SNMP 进程重启可能影响监控系统"
+template: |
+  clear process {{ process_name }}
