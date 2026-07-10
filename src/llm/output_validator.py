@@ -9,7 +9,7 @@ MOD-009: OutputValidator — LLM output security validation layer.
 
 import json
 import re
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
 
