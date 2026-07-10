@@ -72,8 +72,8 @@ class StateGraphEngine:
         workflow.add_node("human_approval", self.handlers.handle_human_approval)
         workflow.add_node("backup_config", self.handlers.handle_backup_config)
         workflow.add_node("execute_fix", self.handlers.handle_execute_fix)
-        workflow.add_node("verify_result", self.handlers.handle_verify_result)
-        workflow.add_node("final_report", self.handlers.handle_final_report)
+        workflow.add_node("verify_fix", self.handlers.handle_verify_result)
+        workflow.add_node("finish_report", self.handlers.handle_final_report)
 
         # ── 设置入口节点 ──
         workflow.set_entry_point("receive_alert")
@@ -88,7 +88,7 @@ class StateGraphEngine:
             self._route_after_validate,
             {
                 "get_device_info": "get_device_info",
-                "final_report": "final_report",
+                "finish_report": "finish_report",
             },
         )
 
@@ -110,24 +110,24 @@ class StateGraphEngine:
         )
 
         # ── CE-003: 备份成功路由 ──
-        # backup_config → 成功: execute_fix / 失败: final_report
+        # backup_config → 成功: execute_fix / 失败: finish_report
         workflow.add_conditional_edges(
             "backup_config",
             self._route_after_backup,
             {
                 "execute_fix": "execute_fix",
-                "final_report": "final_report",
+                "finish_report": "finish_report",
             },
         )
 
-        workflow.add_edge("execute_fix", "verify_result")
+        workflow.add_edge("execute_fix", "verify_fix")
 
         # ── CE-004: 验证结果路由 ──
         workflow.add_conditional_edges(
-            "verify_result",
+            "verify_fix",
             self._route_after_verify,
             {
-                "final_report": "final_report",
+                "finish_report": "finish_report",
                 "execute_fix": "execute_fix",  # 验证失败 → 重试修复
             },
         )
@@ -139,12 +139,12 @@ class StateGraphEngine:
             self._route_after_approval,
             {
                 "backup_config": "backup_config",
-                "final_report": "final_report",
+                "finish_report": "finish_report",
             },
         )
 
         # ── 终点 ──
-        workflow.add_edge("final_report", END)
+        workflow.add_edge("finish_report", END)
 
         # ── 编译图 ──
         # interrupt_before=["human_approval"]: 在进入 human_approval 节点前挂起
@@ -295,7 +295,7 @@ class StateGraphEngine:
     def _route_after_validate(state: NetworkAgentState) -> str:
         """CE-001: is_valid=true → get_device_info; false → final_report"""
         is_valid = state.get("is_valid", False)
-        route = "get_device_info" if is_valid else "final_report"
+        route = "get_device_info" if is_valid else "finish_report"
         logger.debug(f"CE-001 route_after_validate: is_valid={is_valid} → {route}")
         return route
 
@@ -319,8 +319,8 @@ class StateGraphEngine:
             logger.debug("CE-route approval: APPROVED → backup_config")
             return "backup_config"
         else:
-            logger.debug("CE-route approval: REJECTED → final_report")
-            return "final_report"
+            logger.debug("CE-route approval: REJECTED → finish_report")
+            return "finish_report"
 
     @staticmethod
     def _route_after_verify(state: NetworkAgentState) -> str:
@@ -335,7 +335,7 @@ class StateGraphEngine:
         """
         verify_result = state.get("verify_result", {})
         verify_passed = verify_result.get("verify_passed", False) if verify_result else False
-        route = "final_report" if verify_passed else "final_report"
+        route = "finish_report" if verify_passed else "finish_report"
         logger.debug(f"CE-004 route_after_verify: verify_passed={verify_passed} → {route}")
         return route
 
@@ -343,6 +343,6 @@ class StateGraphEngine:
     def _route_after_backup(state: NetworkAgentState) -> str:
         """CE-003: backup_success=true → execute_fix; false → final_report"""
         backup_success = state.get("_backup_success", False)
-        route = "execute_fix" if backup_success else "final_report"
+        route = "execute_fix" if backup_success else "finish_report"
         logger.debug(f"CE-003 route_after_backup: backup_success={backup_success} → {route}")
         return route
