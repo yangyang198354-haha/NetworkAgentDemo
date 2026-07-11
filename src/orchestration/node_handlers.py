@@ -124,15 +124,33 @@ class NodeHandlers:
         elif phase == "END":
             # Finalize the matching START entry
             entries = self._timeline_store.get(alert_id, [])
+            matched_entry = None
             for entry in reversed(entries):
                 if entry["node_name"] == node_name and entry["status"] == "RUNNING":
                     entry["status"] = "COMPLETED"
                     entry["completed_at"] = now_ts
                     entry["duration_ms"] = duration_ms
-                    # Update snapshot with current state
                     entry["state_snapshot"] = dict(state)
+                    matched_entry = entry
                     break
             self.audit_logger.log_node_execution(alert_id, node_name, phase, summary, duration_ms)
+            # Persist timeline to SQLite so it survives restart
+            if matched_entry:
+                try:
+                    from src.database.base import SessionLocal
+                    from src.database.repositories.alert_repository import AlertRepository
+                    db = SessionLocal()
+                    try:
+                        AlertRepository(db).append_timeline_entry(alert_id, {
+                            "node_name": node_name,
+                            "state_snapshot": dict(state),
+                            "started_at": datetime.now(timezone.utc),
+                            "status": "COMPLETED",
+                        })
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.debug(f"Timeline DB persist skipped: {e}")
 
     # ── IFC-005-01: handle_receive_alert ─────────────────
 
@@ -457,6 +475,25 @@ class NodeHandlers:
                 created_at=datetime.now(timezone.utc).isoformat(),
             )
             self.audit_logger.register_pending_approval(pending)
+            # Also persist to SQLite so it survives restart
+            try:
+                from src.database.base import SessionLocal
+                from src.database.repositories.approval_repository import ApprovalRepository
+                db = SessionLocal()
+                try:
+                    ApprovalRepository(db).create_approval({
+                        "checkpoint_id": alert_id,
+                        "alert_id_fk": alert_id,
+                        "fix_plan": {"template_id": fix_plan.template_id, "description": fix_plan.description, "commands": fix_plan.commands},
+                        "risk_level": assessment.risk_level,
+                        "decision": "PENDING",
+                        "decided_by": None,
+                        "note": "",
+                    })
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.warning(f"Failed to persist pending approval to DB: {e}")
             logger.info(f"Approval PENDING for alert {alert_id} (risk={assessment.risk_level})")
 
         self._log_node(state, node, "END")
