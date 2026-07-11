@@ -105,7 +105,7 @@ class InspectionScheduler:
             device_events = self._inspect_device(device)
             events.extend(device_events)
 
-            # 将发现的异常事件归一化并传递
+            # 将发现的异常事件归一化、持久化、触发工作流
             for event in device_events:
                 alert = self.normalizer.normalize_inspection_event(event)
                 if alert:
@@ -113,6 +113,25 @@ class InspectionScheduler:
                         f"Inspection alert: {alert.alert_type} on "
                         f"{alert.device_info.device_name} (id={alert.alert_id})"
                     )
+                    # Persist to SQLite
+                    try:
+                        from src.database.base import SessionLocal
+                        from src.database.repositories.alert_repository import AlertRepository
+                        db = SessionLocal()
+                        try:
+                            repo = AlertRepository(db)
+                            repo.create_alert({
+                                "alert_id": alert.alert_id,
+                                "alert_type": str(alert.alert_type.value) if hasattr(alert.alert_type, 'value') else str(alert.alert_type),
+                                "severity": str(alert.alert_severity.value) if hasattr(alert.alert_severity, 'value') else str(alert.alert_severity),
+                                "content": alert.alert_content,
+                                "device_info": alert.device_info.model_dump() if alert.device_info else {},
+                                "source": str(alert.source.value) if hasattr(alert.source, 'value') else str(alert.source),
+                            })
+                        finally:
+                            db.close()
+                    except Exception as e:
+                        logger.warning(f"Failed to persist inspection alert to DB: {e}")
 
         logger.info(f"Inspection complete: {len(events)} anomaly event(s) found")
         return events

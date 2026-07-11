@@ -39,7 +39,7 @@
         </el-col>
         <el-col :span="4">
           <el-select v-model="store.filters.source" placeholder="来源" clearable @change="onFilterChange">
-            <el-option label="WEBHOOK" value="WEBHOOK" />
+            <el-option label="ZABBIX (Webhook)" value="ZABBIX" />
             <el-option label="INSPECTION" value="INSPECTION" />
             <el-option label="MOCK" value="MOCK" />
           </el-select>
