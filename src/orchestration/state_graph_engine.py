@@ -96,7 +96,17 @@ class StateGraphEngine:
         workflow.add_edge("get_device_info", "establish_ssh")
         workflow.add_edge("establish_ssh", "collect_diag")
         workflow.add_edge("collect_diag", "analyze_root_cause")
-        workflow.add_edge("analyze_root_cause", "generate_fix_plan")
+
+        # ── CE-005: 根因分析失败路由 ──
+        workflow.add_conditional_edges(
+            "analyze_root_cause",
+            self._route_after_analyze,
+            {
+                "generate_fix_plan": "generate_fix_plan",
+                "finish_report": "finish_report",
+            },
+        )
+
         workflow.add_edge("generate_fix_plan", "assess_risk")
 
         # ── CE-002: 风险评估路由 ──
@@ -174,7 +184,7 @@ class StateGraphEngine:
             "alert_content": alert.alert_content,
             "alert_timestamp": alert.alert_timestamp.isoformat() if alert.alert_timestamp else "",
             "device_info": alert.device_info.model_dump() if alert.device_info else {},
-            "status": WorkflowStatus.ACTIVE,
+            "status": WorkflowStatus.ACTIVE.value,
         }
 
         # 为每次运行生成唯一的 thread_id
@@ -290,6 +300,15 @@ class StateGraphEngine:
         return None
 
     # ── 条件边路由函数 ────────────────────────────────────
+
+    @staticmethod
+    def _route_after_analyze(state: NetworkAgentState) -> str:
+        """CE-005: status!=FAILED → generate_fix_plan; FAILED → final_report"""
+        if state.get("status") == "FAILED":
+            logger.info("CE-005 route_after_analyze: LLM failed → finish_report")
+            return "finish_report"
+        logger.debug("CE-005 route_after_analyze: → generate_fix_plan")
+        return "generate_fix_plan"
 
     @staticmethod
     def _route_after_validate(state: NetworkAgentState) -> str:

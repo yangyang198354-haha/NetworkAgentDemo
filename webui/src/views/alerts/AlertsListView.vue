@@ -48,7 +48,15 @@
 
       <!-- Table -->
       <el-table :data="store.alertList" v-loading="store.loading" stripe>
-        <el-table-column prop="alert_id" label="告警ID" width="150" show-overflow-tooltip />
+        <el-table-column label="告警ID" width="320">
+          <template #default="{ row }">
+            <span style="font-size:12px;font-family:monospace;cursor:pointer"
+                  @click="copyId(row.alert_id)"
+                  :title="'点击复制: ' + row.alert_id">
+              {{ row.alert_id }}
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column prop="alert_type" label="类型" width="120">
           <template #default="{ row }">
             <el-tag :type="typeColor(row.alert_type)" size="small">{{ row.alert_type }}</el-tag>
@@ -62,10 +70,12 @@
         <el-table-column label="设备" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.device_info?.device_name || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="source" label="来源" width="100" />
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column label="来源" width="100">
+          <template #default="{ row }">{{ cleanStatus(row.source) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="statusColor(row.status)" size="small">{{ row.status }}</el-tag>
+            <el-tag :type="statusColor(row.status)" size="small">{{ cleanStatus(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="content" label="描述" show-overflow-tooltip />
@@ -103,7 +113,12 @@ onMounted(() => store.fetchAlerts())
 function onFilterChange() { store.updateFilters({}); store.fetchAlerts() }
 function typeColor(t: string) { return { MAC_FLAPPING: 'danger', PORT_DOWN: 'warning', CPU_HIGH: '' }[t] || '' }
 function severityColor(s: string) { return { CRITICAL: 'danger', MAJOR: 'warning', MINOR: '', WARNING: 'info' }[s] || '' }
-function statusColor(s: string) { return { PROCESSING: '', CLOSED: 'success', FAILED: 'danger', REJECTED: 'warning' }[s] || '' }
+function statusColor(s: string) {
+  const v = (s || '').replace('WorkflowStatus.', '')
+  return { PROCESSING: 'warning', CLOSED: 'success', FAILED: 'danger', REJECTED: 'info' }[v] || ''
+}
+function cleanStatus(s: string) { return (s || '').replace('WorkflowStatus.', '') }
+function copyId(id: string) { navigator.clipboard.writeText(id).then(() => {}) }
 function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
 </script>
 

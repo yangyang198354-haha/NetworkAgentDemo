@@ -160,7 +160,7 @@ class NodeHandlers:
         self._log_node(state, node, "START")
 
         alert_id = state.get("alert_id", str(uuid4()))
-        status = WorkflowStatus.ACTIVE
+        status = WorkflowStatus.ACTIVE.value
 
         self._log_node(state, node, "END")
         return {
@@ -328,9 +328,19 @@ class NodeHandlers:
         diag_result = state.get("diag_result", "")
         alert_type = state.get("alert_type", "")
 
-        # LLM 根因分析
+        # LLM 根因分析 (with error handling — don't hang forever)
         self.llm_service.set_context(state.get("alert_id"))
-        root_cause_result: RootCauseResult = self.llm_service.analyze_root_cause(alert_content, diag_result)
+        try:
+            root_cause_result: RootCauseResult = self.llm_service.analyze_root_cause(alert_content, diag_result)
+        except Exception as e:
+            logger.error(f"LLM analyze_root_cause failed: {e}")
+            self._log_node(state, node, "END")
+            return {
+                "root_cause": f"LLM分析失败: {str(e)[:200]}",
+                "knowledge_refs": [],
+                "_error_message": f"analyze_root_cause: {str(e)[:200]}",
+                "status": "FAILED",
+            }
         root_cause = root_cause_result.description
         if root_cause_result.possible_causes:
             root_cause += "\n\n可能原因:\n- " + "\n- ".join(root_cause_result.possible_causes)
