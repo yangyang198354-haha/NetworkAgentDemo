@@ -119,7 +119,7 @@ async def decide_approval(
     if body.decision not in ("APPROVED", "REJECTED"):
         raise HTTPException(status_code=400, detail="decision must be APPROVED or REJECTED")
 
-    # Update in database
+    # Try update, if fails (no existing record), create new
     repo = ApprovalRepository(db)
     updated = repo.update_approval_decision(
         checkpoint_id=checkpoint_id,
@@ -127,9 +127,40 @@ async def decide_approval(
         decided_by="admin",
         note=body.note,
     )
+    if updated is None:
+        # No existing record in DB — create one (from in-memory AuditLogger data)
+        main_mod = sys.modules.get("src.main")
+        alert_id = checkpoint_id  # checkpoint_id is alert_id for our system
+        risk_level = "HIGH"
+        if main_mod:
+            try:
+                mem_items = main_mod.state_graph_engine.get_pending_approvals()
+                for mi in mem_items:
+                    if mi.checkpoint_id == checkpoint_id:
+                        alert_id = mi.alert_id
+                        risk_level = mi.risk_level
+                        break
+            except Exception:
+                pass
+        repo.create_approval({
+            "checkpoint_id": checkpoint_id,
+            "alert_id_fk": alert_id,
+            "fix_plan": {},
+            "risk_level": risk_level,
+            "decision": body.decision,
+            "decided_by": "admin",
+            "note": body.note or "",
+        })
+
+    # Clean up in-memory AuditLogger pending
+    main_module = sys.modules.get("src.main")
+    if main_module:
+        try:
+            main_module.audit_logger.remove_pending_approval(checkpoint_id)
+        except Exception:
+            pass
 
     # Resume LangGraph workflow
-    main_module = sys.modules.get("src.main")
     if main_module:
         decision = ApprovalDecision(
             checkpoint_id=checkpoint_id,
@@ -141,6 +172,19 @@ async def decide_approval(
         def resume():
             try:
                 result = main_module.state_graph_engine.resume_workflow(checkpoint_id, decision)
+                # Try to update alert status in SQLite after workflow completes
+                if result:
+                    from src.database.repositories.alert_repository import AlertRepository
+                    from src.database.base import SessionLocal
+                    db2 = SessionLocal()
+                    try:
+                        alert_repo = AlertRepository(db2)
+                        final_status = result.get("status", "CLOSED")
+                        alert_repo.update_alert_status(checkpoint_id, str(final_status))
+                    except Exception:
+                        pass
+                    finally:
+                        db2.close()
             except Exception:
                 pass
 
