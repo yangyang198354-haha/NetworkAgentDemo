@@ -38,12 +38,22 @@ class LLMService:
         self._base_url = base_url or "https://api.deepseek.com/v1"
         self._model = "deepseek-chat"
         self._temperature = 0.1
+        self._llm_call_log: dict[str, list[dict]] = {}  # alert_id → list of call records
+        self._current_context: str | None = None
 
         if self._api_key:
             self._client = OpenAI(base_url=self._base_url, api_key=self._api_key)
         else:
             self._client = None
             logger.warning("DEEPSEEK_API_KEY not set — LLMService will use mock responses")
+
+    def set_context(self, alert_id: str | None) -> None:
+        """Set current alert context for LLM call recording."""
+        self._current_context = alert_id
+
+    def get_llm_logs(self, alert_id: str) -> list[dict]:
+        """Retrieve LLM call records for a given alert."""
+        return self._llm_call_log.get(alert_id, [])
 
     # ── IFC-006-01: analyze_root_cause ──────────────────────
 
@@ -76,29 +86,36 @@ class LLMService:
         root_cause: str,
         diag_result: str,
         device_info: DeviceInfo,
+        params_schema: dict[str, str] | None = None,
     ) -> TemplateParams:
         """
         模板参数填充端点（严格约束，输出纯 JSON）。
         返回的 TemplateParams 中的 params 将由 MOD-009 OutputValidator 校验。
         """
         prompt = self._build_fill_params_prompt(
-            template_id, template_description, root_cause, diag_result, device_info
+            template_id, template_description, root_cause, diag_result, device_info, params_schema
         )
 
         raw_output = self._call_llm(prompt, endpoint="fill_template_params")
 
-        # 尝试解析 JSON
+        # 尝试解析 JSON（兼容单引号）
         try:
-            # 从输出中提取 JSON 块
             json_str = self._extract_json(raw_output)
             params_dict = json.loads(json_str)
-            if not isinstance(params_dict, dict):
+        except (json.JSONDecodeError, ValueError):
+            # Fallback: try replacing single quotes with double quotes (DeepSeek quirk)
+            try:
+                fixed = self._extract_json(raw_output)
+                fixed = fixed.replace("'", '"')
+                params_dict = json.loads(fixed)
+                logger.info("LLM JSON parsed after single→double quote fix")
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"LLM fill_template_params output not valid JSON: {e}")
                 params_dict = {}
-            return TemplateParams(params=params_dict)
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"LLM fill_template_params output not valid JSON: {e}")
-            # 返回空参数作为 fallback
-            return TemplateParams(params={})
+
+        if not isinstance(params_dict, dict):
+            params_dict = {}
+        return TemplateParams(params=params_dict)
 
     # ── IFC-006-03: generate_report ────────────────────────
 
@@ -149,6 +166,22 @@ class LLMService:
                     f"completion_tokens={usage.completion_tokens if usage else 'N/A'} | "
                     f"output_len={len(output)}"
                 )
+
+                # Record LLM call for Web UI
+                if self._current_context:
+                    ctx = self._current_context
+                    if ctx not in self._llm_call_log:
+                        self._llm_call_log[ctx] = []
+                    self._llm_call_log[ctx].append({
+                        "endpoint": endpoint,
+                        "timestamp": time.strftime("%H:%M:%S"),
+                        "elapsed_s": round(elapsed, 2),
+                        "prompt_tokens": usage.prompt_tokens if usage else 0,
+                        "completion_tokens": usage.completion_tokens if usage else 0,
+                        "prompt": prompt[:3000],   # Truncate for storage
+                        "response": output[:3000],
+                    })
+
                 return output
 
             except Exception as e:
@@ -196,13 +229,20 @@ class LLMService:
         root_cause: str,
         diag_result: str,
         device_info: DeviceInfo,
+        params_schema: dict[str, str] | None = None,
     ) -> str:
+        # Build expected params list
+        params_list = ""
+        if params_schema:
+            params_items = ", ".join(f'{k}({v})' for k, v in params_schema.items())
+            params_list = f"你需要填充的参数（**只能包含这些 key**）: {params_items}\n"
+
         return f"""你是一个网络运维专家。你需要根据告警分析和诊断数据，为命令模板填充参数值。
 
 ## 模板信息
 模板ID: {template_id}
 模板描述: {template_description}
-
+{params_list}
 ## 根因分析
 {root_cause}
 
@@ -215,12 +255,13 @@ class LLMService:
 - 接口: {device_info.interface_name or 'N/A'}
 - MAC: {device_info.mac_address or 'N/A'}
 
-## 输出要求
-请输出一个纯 JSON 对象，键值对为模板参数名和对应的填充值。
-只输出 JSON，不要包含任何其他文本、解释或 Markdown 标记。
+## 输出要求（严格遵守！）
 
-示例输出格式:
-{{"iface_name": "Gi0/1", "desc": "Auto-recovered port", "max_mac": 2, "violation_mode": "restrict"}}
+你必须输出一个**合法的纯 JSON 对象**。规则：
+1. 只输出 JSON，不要包含任何其他文本、解释、Markdown 代码块标记
+2. JSON 的 key 和字符串 value 必须用双引号 "" 包裹，不能用单引号 ''
+3. 不要在最后一个元素后面加逗号
+4. **JSON 中只能包含上面列出的参数名，不要自己编造任何额外的 key！**
 
 请根据实际情况填充合理的参数值。注意:
 - 接口名称使用诊断数据中出现的接口名

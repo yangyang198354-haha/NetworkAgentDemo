@@ -9,6 +9,7 @@ MOD-005: NodeHandlers — LangGraph node handler functions (14 nodes).
 """
 
 from datetime import datetime, timezone
+import json
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -91,17 +92,46 @@ class NodeHandlers:
         self.risk_assessor = risk_assessor or RiskAssessor()
         self.audit_logger = audit_logger or AuditLogger()
         self.config_manager = config_manager or ConfigManager()
+        self._timeline_store: dict[str, list[dict[str, Any]]] = {}  # alert_id → timeline entries
 
-    # ── 内部辅助: 日志记录 ────────────────────────────────
+    def get_timeline(self, alert_id: str) -> list[dict[str, Any]]:
+        """Return timeline entries for an alert."""
+        return self._timeline_store.get(alert_id, [])
+
+    # ── 内部辅助: 日志记录 + 时间线 ──────────────────────────
 
     def _log_node(self, state: NetworkAgentState, node_name: str, phase: str, duration_ms: int = 0) -> None:
-        """记录节点执行日志。"""
+        """记录节点执行日志 + 写入内存时间线。"""
         alert_id = state.get("alert_id", "UNKNOWN")
+        now_ts = datetime.now(timezone.utc).isoformat()
         summary = {
             "alert_type": state.get("alert_type", ""),
             "status": state.get("status", ""),
         }
-        if phase == "END":
+
+        if phase == "START":
+            # Create pending timeline entry
+            if alert_id not in self._timeline_store:
+                self._timeline_store[alert_id] = []
+            self._timeline_store[alert_id].append({
+                "id": f"{node_name}_{len(self._timeline_store[alert_id])}",
+                "node_name": node_name,
+                "status": "RUNNING",
+                "started_at": now_ts,
+                "completed_at": None,
+                "state_snapshot": dict(state),
+            })
+        elif phase == "END":
+            # Finalize the matching START entry
+            entries = self._timeline_store.get(alert_id, [])
+            for entry in reversed(entries):
+                if entry["node_name"] == node_name and entry["status"] == "RUNNING":
+                    entry["status"] = "COMPLETED"
+                    entry["completed_at"] = now_ts
+                    entry["duration_ms"] = duration_ms
+                    # Update snapshot with current state
+                    entry["state_snapshot"] = dict(state)
+                    break
             self.audit_logger.log_node_execution(alert_id, node_name, phase, summary, duration_ms)
 
     # ── IFC-005-01: handle_receive_alert ─────────────────
@@ -281,6 +311,7 @@ class NodeHandlers:
         alert_type = state.get("alert_type", "")
 
         # LLM 根因分析
+        self.llm_service.set_context(state.get("alert_id"))
         root_cause_result: RootCauseResult = self.llm_service.analyze_root_cause(alert_content, diag_result)
         root_cause = root_cause_result.description
         if root_cause_result.possible_causes:
@@ -350,6 +381,7 @@ class NodeHandlers:
                 root_cause=root_cause,
                 diag_result=diag_result,
                 device_info=device_info,
+                params_schema=template_def.params_schema,
             )
         except Exception as e:
             logger.error(f"LLM fill_template_params failed: {e}")
@@ -359,7 +391,7 @@ class NodeHandlers:
         # Step 2: OutputValidator 校验（必须在 TemplateEngine 拼装之前）
         try:
             validated_params = self.output_validator.validate_params(
-                raw_output=str(llm_params.params),
+                raw_output=json.dumps(llm_params.params, ensure_ascii=False),
                 template_params_schema=template_def.params_schema,
             )
         except ValidationError as e:

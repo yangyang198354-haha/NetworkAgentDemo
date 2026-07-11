@@ -2,11 +2,17 @@
 NetworkAgentDemo — Application Entry Point.
 @author sub_agent_software_developer
 @module Main Application
-@version 0.1.0
+@version 0.2.0
 
 Integrates FastAPI server, LangGraph workflow engine, APScheduler inspection,
 and all 16 modules. Provides REST API endpoints for alert submission,
-workflow management, and approval handling.
+workflow management, approval handling, and Web UI management.
+
+Web UI additions (v0.2.0):
+  - MOD-WEB-001~007: API routers, auth, encryption, DB, dashboard, log reader
+  - JWT-protected /api/* endpoints (8 APIRouters, ~41 endpoints)
+  - SQLite persistence layer (11 ORM models, 7 repositories)
+  - Existing 6 endpoints preserved with zero deletion
 """
 
 import os
@@ -49,6 +55,11 @@ from src.orchestration.state_graph_engine import StateGraphEngine
 
 from src.trigger.webhook_receiver import WebhookReceiver
 from src.trigger.inspection_scheduler import InspectionScheduler
+
+# ── MOD-WEB: Web UI 新增模块导入 ───────────────────────────
+from src.database.base import create_engine as db_create_engine, init_session, init_db, get_db as db_get_db
+from src.services.encryption_service import EncryptionService
+from src.services.auth_service import init_admin_user
 
 
 # ────────────────────────────────────────────────────
@@ -94,6 +105,9 @@ inspection_scheduler = InspectionScheduler(
     config_manager=config_manager,
 )
 
+# ── MOD-WEB: Web UI 单例 ───────────────────────────────────
+encryption_service = EncryptionService()
+
 
 # ────────────────────────────────────────────────────
 # 应用启动/关闭管理
@@ -103,7 +117,7 @@ inspection_scheduler = InspectionScheduler(
 async def lifespan(app: FastAPI):
     """FastAPI 生命周期管理 — 启动时初始化所有模块，关闭时清理资源。"""
     logger.info("=" * 60)
-    logger.info("NetworkAgentDemo v0.1.0 — Starting up...")
+    logger.info("NetworkAgentDemo v0.2.0 — Starting up...")
     logger.info("=" * 60)
 
     # 1. 加载配置
@@ -137,6 +151,26 @@ async def lifespan(app: FastAPI):
     seed_file = config_manager.get("knowledge.seed_file") or "./resources/knowledge/seed_knowledge.json"
     rag_service.load_seed_knowledge(seed_file)
     logger.info("RAGService initialized with seed knowledge")
+
+    # ── MOD-WEB: 6. 初始化数据库 (MOD-WEB-003) ─────────────
+    db_path = config_manager.get("webui.db_path") or "./data/webui.db"
+    engine = db_create_engine(db_path)
+    init_session(engine)
+    init_db(engine)
+    logger.info("SQLite database initialized (webui.db)")
+
+    # ── MOD-WEB: 7. 初始化加密服务 (MOD-WEB-005) ────────────
+    encryption_service.initialize()
+    logger.info(f"EncryptionService initialized (key source: {encryption_service.get_key_status()})")
+
+    # ── MOD-WEB: 8. 初始化 admin 用户 (MOD-WEB-002) ─────────
+    db_gen = db_get_db()
+    admin_db = next(db_gen)
+    try:
+        init_admin_user(admin_db)
+    finally:
+        admin_db.close()
+    logger.info("Admin user initialized")
 
     # 6. 构建 LangGraph
     state_graph_engine.build_graph()
@@ -174,14 +208,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="NetworkAgentDemo",
-    description="LangGraph-based network automation agent (Demo)",
-    version="0.1.0",
+    description="LangGraph-based network automation agent (Demo) with Web UI",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
+# ── MOD-WEB: 注册 Web UI 路由 (MOD-WEB-001) ─────────────────
+from src.api import auth_router, api_router
+
+app.include_router(auth_router)
+app.include_router(api_router)
+logger.info("Web UI API routers registered (auth + 8 API routers)")
+
 
 # ────────────────────────────────────────────────────
-# API 端点
+# API 端点（原有 6 个，保持向后兼容）
 # ────────────────────────────────────────────────────
 
 @app.post("/webhook/alert", response_model=AlertReceipt)
@@ -211,16 +252,16 @@ async def handle_webhook_alert(payload: AlertPayload):
     return AlertReceipt(alert_id=alert.alert_id, status="ACCEPTED")
 
 
-@app.post("/alerts/simulate")
-async def simulate_alert(
+@app.post("/alerts/simulate", deprecated=True)
+async def simulate_alert_legacy(
     alert_type: str = "PORT_DOWN",
     device_name: str = "Core-SW-01",
     device_ip: str = "192.168.1.1",
     interface: str = "Gi0/1",
 ):
     """
-    模拟告警端点（便捷测试接口）。
-    直接构造 Alert 对象并触发工作流。
+    [DEPRECATED] 模拟告警端点（便捷测试接口）。
+    请使用 POST /api/alerts/simulate 替代。
     """
     try:
         atype = AlertType(alert_type.upper())
@@ -262,9 +303,10 @@ async def simulate_alert(
     threading.Thread(target=run_workflow, daemon=True).start()
 
     return {
-        "message": "Simulated alert accepted",
+        "message": "Simulated alert accepted (DEPRECATED — use POST /api/alerts/simulate)",
         "alert_id": alert.alert_id,
         "alert_type": alert.alert_type,
+        "warning": "This endpoint is deprecated, use POST /api/alerts/simulate instead",
     }
 
 
@@ -316,6 +358,37 @@ async def health_check():
             "scheduler": inspection_scheduler._scheduler is not None,
         },
     }
+
+
+# ── MOD-WEB: Static files mount for Vue SPA ─────────────────
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+_webui_dist = Path(__file__).resolve().parent.parent / "webui" / "dist"
+
+if _webui_dist.exists():
+    # Mount assets at /assets/ (JS, CSS, images)
+    _assets_dir = _webui_dist / "assets"
+    if _assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+
+    # Serve index.html for root and SPA fallback
+    @app.get("/")
+    async def serve_spa_root():
+        return FileResponse(str(_webui_dist / "index.html"))
+
+    @app.get("/{full_path:path}")
+    async def serve_spa_fallback(full_path: str):
+        """SPA fallback — serve index.html for all non-API routes."""
+        file_path = _webui_dist / full_path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(_webui_dist / "index.html"))
+
+    logger.info(f"Web UI static files mounted from {_webui_dist}")
+else:
+    logger.warning(f"Web UI dist directory not found: {_webui_dist}")
 
 
 # ────────────────────────────────────────────────────

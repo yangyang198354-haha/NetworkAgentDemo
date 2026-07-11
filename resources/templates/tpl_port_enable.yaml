@@ -1,7 +1,7 @@
 template_id: TPL-PORT-ENABLE
 description: "启用关闭的端口，恢复接口通信"
 alert_type: PORT_DOWN
-risk_level: HIGH
+risk_level: MEDIUM
 params_schema:
   iface_name: string
   desc: string

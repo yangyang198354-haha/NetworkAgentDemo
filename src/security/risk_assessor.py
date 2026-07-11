@@ -21,14 +21,14 @@ from src.models.fix_plan import FixPlan, RiskAssessment
 
 HIGH_RISK_PATTERNS: list[dict[str, Any]] = [
     {
-        "pattern": re.compile(r"\bshutdown\b", re.IGNORECASE),
-        "name": "端口 shutdown",
+        "pattern": re.compile(r"(?<!\bno\s)\bshutdown\b", re.IGNORECASE),
+        "name": "端口 shutdown（关闭端口）",
         "risk_level": RiskLevel.HIGH,
     },
     {
         "pattern": re.compile(r"\bno\s+shutdown\b", re.IGNORECASE),
-        "name": "端口 no shutdown",
-        "risk_level": RiskLevel.HIGH,
+        "name": "端口 no shutdown（恢复端口）",
+        "risk_level": RiskLevel.MEDIUM,
     },
     {
         "pattern": re.compile(r"\bno\s+vlan\b", re.IGNORECASE),
@@ -121,13 +121,14 @@ class RiskAssessor:
         """
         判定是否需要人工审批:
           - HIGH / CRITICAL → true (REQ-NFUNC-003)
-          - MEDIUM + (多条修改命令 或 多个匹配模式) → true
+          - MEDIUM + 多个不同风险模式匹配 → true
+          - MEDIUM + 单个风险模式 → false（标准运维操作）
           - LOW → false
         """
         if highest_risk in (RiskLevel.CRITICAL, RiskLevel.HIGH):
             return True
 
-        if highest_risk == RiskLevel.MEDIUM and (command_count > 1 or len(matched_patterns) > 1):
+        if highest_risk == RiskLevel.MEDIUM and len(set(matched_patterns)) > 1:
             return True
 
         return False

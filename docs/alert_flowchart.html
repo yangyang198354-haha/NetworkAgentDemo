@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetworkAgentDemo — 告警处理全流程图</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --trigger: #dbeafe;
+    --trigger-border: #3b82f6;
+    --orchestration: #dcfce7;
+    --orchestration-border: #22c55e;
+    --llm-tool: #fef9c3;
+    --llm-tool-border: #eab308;
+    --security: #f3e8ff;
+    --security-border: #a855f7;
+    --card-bg: #f9fafb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --border: #334155;
+      --trigger: #1e3a5f;
+      --trigger-border: #60a5fa;
+      --orchestration: #14532d;
+      --orchestration-border: #4ade80;
+      --llm-tool: #422006;
+      --llm-tool-border: #facc15;
+      --security: #3b0764;
+      --security-border: #c084fc;
+      --card-bg: #1e293b;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+
+  /* Legend */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;
+    padding: 1rem; background: var(--card-bg); border-radius: 0.75rem;
+    border: 1px solid var(--border);
+  }
+  .legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+  .legend-swatch { width: 18px; height: 18px; border-radius: 4px; border: 2px solid; flex-shrink: 0; }
+  .legend-diamond { width: 18px; height: 18px; transform: rotate(45deg); border-radius: 2px; border: 2px solid; flex-shrink: 0; }
+
+  /* Mermaid container */
+  .mermaid-wrapper {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    overflow-x: auto;
+  }
+
+  /* Module detail cards */
+  .section-title {
+    font-size: 1.15rem; font-weight: 600; margin: 2rem 0 1rem;
+    padding-bottom: 0.5rem; border-bottom: 2px solid var(--border);
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.75rem;
+    padding: 1rem; border-left: 4px solid;
+  }
+  .card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.35rem; }
+  .card .mod-id { font-size: 0.75rem; color: var(--muted); font-family: monospace; }
+  .card p { font-size: 0.85rem; color: var(--muted); margin-top: 0.35rem; }
+  .card code { font-size: 0.78rem; background: var(--border); padding: 1px 5px; border-radius: 3px; }
+  .card-trigger { border-left-color: var(--trigger-border); }
+  .card-orch { border-left-color: var(--orchestration-border); }
+  .card-llm { border-left-color: var(--llm-tool-border); }
+  .card-tool { border-left-color: var(--llm-tool-border); }
+  .card-security { border-left-color: var(--security-border); }
+
+  /* Data structure table */
+  .ds-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 1rem 0; }
+  .ds-table th, .ds-table td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--border); }
+  .ds-table th { font-weight: 600; background: var(--card-bg); position: sticky; top: 0; }
+  .ds-table code { font-size: 0.78rem; background: var(--border); padding: 1px 5px; border-radius: 3px; }
+
+  .note {
+    background: #fef3c7; border: 1px solid #f59e0b; border-radius: 0.5rem;
+    padding: 0.75rem 1rem; margin: 1.5rem 0; font-size: 0.85rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    .note { background: #451a03; border-color: #d97706; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>NetworkAgentDemo — 告警处理全流程图</h1>
+<p class="subtitle">从告警触发 → 归一化 → LangGraph 14节点状态机 → 执行闭环 → 审计存储</p>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:var(--trigger);border-color:var(--trigger-border)"></div> 触发层 (Trigger)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:var(--orchestration);border-color:var(--orchestration-border)"></div> 编排层 (Orchestration)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:var(--llm-tool);border-color:var(--llm-tool-border)"></div> LLM/知识层 + 工具层</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:var(--security);border-color:var(--security-border)"></div> 安全/基础设施层</div>
+  <div class="legend-item"><div class="legend-diamond" style="background:var(--card-bg);border-color:var(--text)"></div> 条件判断</div>
+  <div class="legend-item" style="margin-left:0.5rem">······ 外部交互（虚线）</div>
+</div>
+
+<!-- Mermaid Flowchart -->
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+flowchart TD
+    %% ===== 样式定义 =====
+    classDef trigger fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e3a5f
+    classDef orch fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#14532d
+    classDef llm fill:#fef9c3,stroke:#eab308,stroke-width:2px,color:#713f12
+    classDef tool fill:#fef9c3,stroke:#eab308,stroke-width:2px,color:#713f12
+    classDef security fill:#f3e8ff,stroke:#a855f7,stroke-width:2px,color:#4c1d95
+    classDef decision fill:#f9fafb,stroke:#374151,stroke-width:2px,color:#1f2937
+    classDef endpoint fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#7f1d1d
+    classDef external fill:#fff,stroke:#9ca3af,stroke-width:1.5px,stroke-dasharray: 5 5,color:#6b7280
+
+    %% =============== 第一阶段：告警触发 ===============
+    subgraph TRIGGER["🔵 第一阶段：告警触发层 (Trigger Layer)"]
+        direction TB
+        ZABBIX["🖥 外部监控系统<br/>Zabbix / Mock 脚本"]
+        WEBHOOK["MOD-001 WebhookReceiver<br/>FastAPI POST /webhook/alert<br/>Pydantic 校验 AlertPayload"]
+        SCHEDULER["MOD-002 InspectionScheduler<br/>APScheduler 定时巡检<br/>间隔: 5分钟(可配置)"]
+        DIAG_TOOL_TRIG["MOD-011 SwitchDiagTool<br/>执行 show interface status<br/>show processes cpu"]
+        INSPECT_EVENT["发现异常?<br/>生成 RawInspectionEvent"]
+        DEVICES["📋 纳管设备列表<br/>Core-SW-01 (192.168.1.1)<br/>Access-SW-02 (192.168.1.2)"]
+
+        ZABBIX -->|"HTTP POST<br/>JSON Body"| WEBHOOK
+        SCHEDULER -->|"定时触发"| DIAG_TOOL_TRIG
+        DEVICES -.->|"设备清单"| SCHEDULER
+        DIAG_TOOL_TRIG --> INSPECT_EVENT
+    end
+
+    %% =============== 第二阶段：告警归一化 ===============
+    subgraph NORMALIZE["🟢 第二阶段：告警归一化 (Alert Normalizer)"]
+        direction TB
+        NORMALIZER["MOD-004 AlertNormalizer<br/>━━━━━━━━━━━━━━━━<br/>① 类型映射: MAC_FLAPPING/PORT_DOWN/CPU_HIGH<br/>② 时效性检查: TTL 15分钟<br/>③ 去重检查: 内存缓存100条(alert_type::device_name)<br/>━━━━━━━━━━━━━━━━<br/>输出: 标准 Alert 对象 或 None"]
+        DEDUP_CHECK{"去重/过期?"}
+        DROP["❌ 丢弃<br/>返回 DUPLICATE/EXPIRED"]
+
+        NORMALIZER --> DEDUP_CHECK
+        DEDUP_CHECK -->|"是"| DROP
+    end
+
+    %% =============== 第三阶段：LangGraph 状态机 ===============
+    subgraph STATEGRAPH["🟢 第三阶段：LangGraph 14节点状态机 (StateGraphEngine + NodeHandlers)"]
+        direction TB
+
+        %% 节点 1-3: 接收与校验
+        subgraph PHASE1["阶段 3a: 接收与校验 (节点1-3)"]
+            N1["① receive_alert<br/>初始化 State<br/>alert_id, status=ACTIVE"]
+            N2["② parse_alert<br/>解析告警字段<br/>alert_type/content/device_info"]
+            N3["③ validate_alert<br/>时效性检查(TTL 15min)<br/>内容非空检查"]
+        end
+
+        N1 --> N2 --> N3
+
+        CE001{"CE-001<br/>is_valid?"}
+        N3 --> CE001
+
+        %% 节点 4-6: 设备连接与诊断
+        subgraph PHASE2["阶段 3b: 设备连接与诊断 (节点4-6)"]
+            N4["④ get_device_info<br/>从 ConfigManager<br/>获取设备凭据/型号"]
+            N5["⑤ establish_ssh<br/>SSH连接建立<br/>Mock: 格式校验"]
+            N6["⑥ collect_diag<br/>调用 SwitchDiagTool<br/>执行诊断show命令"]
+        end
+
+        CE001 -->|"✅ true"| N4
+        N4 --> N5 --> N6
+
+        %% 节点 7-8: AI分析
+        subgraph PHASE3["阶段 3c: AI分析与方案生成 (节点7-8)"]
+            N7["⑦ analyze_root_cause<br/>━━━━━━━━━━━━━━━━<br/>LLMService.analyze_root_cause()<br/>→ DeepSeek API 根因推理<br/>RAGService.search()<br/>→ Chroma 向量库语义检索<br/>━━━━━━━━━━━━━━━━<br/>输出: root_cause + knowledge_refs"]
+            N8["⑧ generate_fix_plan<br/>━━━━━━━━━━━━━━━━<br/>① 从RAG匹配最佳模板<br/>② LLMService.fill_template_params()<br/>   → DeepSeek API 填参 (纯JSON)<br/>③ OutputValidator.validate_params()<br/>   → JSON Schema校验 + CLI黑名单扫描<br/>④ TemplateEngine.render()<br/>   → Jinja2 确定性命令拼装<br/>━━━━━━━━━━━━━━━━<br/>输出: FixPlan{commands[]}"]
+        end
+
+        N6 --> N7 --> N8
+
+        %% 节点 9-10: 风险评估与审批
+        subgraph PHASE4["阶段 3d: 风险评估与审批 (节点9-10)"]
+            N9["⑨ assess_risk<br/>RiskAssessor.assess()<br/>正则匹配7种高风险模式:<br/>shutdown/VLAN删除/重启/路由变更..."]
+            CE002{"CE-002<br/>need_human<br/>_approval?"}
+            N10["⑩ human_approval ⚠️<br/>━━━━━━━━━━━━━━━━<br/>⛔ LangGraph INTERRUPT<br/>   挂起等待人工审批<br/>━━━━━━━━━━━━━━━━<br/>注册 PendingApprovalRecord<br/>→ AuditLogger"]
+        end
+
+        N8 --> N9 --> CE002
+        CE002 -->|"⚠️ true (HIGH/CRITICAL)"| N10
+
+        %% 节点 11-14: 执行与闭环
+        subgraph PHASE5["阶段 3e: 执行与闭环 (节点11-14)"]
+            N11["⑪ backup_config<br/>BackupTool.backup()<br/>拉取 running-config 快照<br/>→ backup_id (UUID)"]
+            CE003{"CE-003<br/>备份成功?"}
+            N12["⑫ execute_fix<br/>SwitchConfigTool.configure()<br/>逐条下发CLI命令<br/>+ AuditLogger记录CONFIG_CHANGE"]
+            N13["⑬ verify_result<br/>重新诊断对比前后状态<br/>检查异常关键词是否消失"]
+            CE004{"CE-004<br/>验证通过?"}
+            N14["⑭ final_report<br/>━━━━━━━━━━━━━━━━<br/>LLMService.generate_report()<br/>→ Markdown 处理报告<br/>设置最终 status"]
+        end
+
+        CE002 -->|"✅ false (LOW/MEDIUM)"| N11
+        N10 --> N11
+        N11 --> CE003
+        CE003 -->|"✅ success"| N12
+        CE003 -->|"❌ failed"| N14
+        N12 --> N13 --> CE004
+        CE004 -->|"✅ passed"| N14
+        CE004 -->|"❌ failed → 重试"| N12
+    end
+
+    %% ===== 审批外部交互 =====
+    APPROVER["👤 运维人员<br/>GET /approvals/pending<br/>POST /approvals/{id}/decide<br/>{decision: APPROVED|REJECTED}"]
+    APPROVER -.->|"审批决定"| N10
+
+    %% ===== 最终状态 =====
+    END_CLOSED["✅ CLOSED<br/>修复成功闭环"]
+    END_EXPIRED["⏰ EXPIRED<br/>告警过期/无效"]
+    END_REJECTED["🚫 REJECTED<br/>审批被拒"]
+    END_FAILED["❌ FAILED<br/>备份/验证失败"]
+
+    CE001 -->|"❌ false"| N14
+    N14 --> END_CLOSED
+    N14 --> END_EXPIRED
+    N14 --> END_REJECTED
+    N14 --> END_FAILED
+
+    %% ===== 第四阶段：审计存储 =====
+    subgraph AUDIT["🟣 第四阶段：审计与存储 (贯穿全流程)"]
+        direction LR
+        AUDIT_LOG["MOD-015 AuditLogger<br/>━━━━━━━━━━━━━━━━<br/>log_node_execution()<br/>→ ./logs/operations_{date}.log<br/>(每个节点 START/END)<br/><br/>log_audit_event()<br/>→ ./logs/audit.log<br/>(CONFIG_CHANGE/APPROVAL/ROLLBACK/SECURITY)<br/><br/>register_pending_approval()<br/>→ 内存字典<br/><br/>LangGraph MemorySaver<br/>→ 内存检查点(State快照)"]
+        CHROMA["MOD-008 RAGService<br/>Chroma 向量库<br/>→ ./data/chroma_db/<br/>知识文档嵌入索引"]
+        CONFIG["MOD-016 ConfigManager<br/>config.yaml + 环境变量<br/>全局配置管理"]
+    end
+
+    %% ===== 模块间连线 =====
+    WEBHOOK -->|"AlertPayload"| NORMALIZER
+    INSPECT_EVENT -->|"RawInspectionEvent"| NORMALIZER
+    DEDUP_CHECK -->|"否 → 标准Alert对象"| N1
+
+    %% 下层模块调用关系（虚线表示依赖）
+    N6 -.->|"调用"| DIAG_TOOL_TRIG
+    N7 -.->|"调用"| CHROMA
+    N8 -.->|"调用"| CHROMA
+    N14 -.->|"调用"| CHROMA
+
+    %% 样式应用
+    class ZABBIX,WEBHOOK,SCHEDULER,DEVICES trigger
+    class NORMALIZER,N1,N2,N3,N4,N5,N6,N7,N8,N9,N10,N11,N12,N13,N14 orch
+    class DIAG_TOOL_TRIG,INSPECT_EVENT tool
+    class CE001,CE002,CE003,CE004,DEDUP_CHECK decision
+    class DROP,END_CLOSED,END_EXPIRED,END_REJECTED,END_FAILED endpoint
+    class APPROVER external
+    class AUDIT_LOG,CHROMA,CONFIG security
+</pre>
+</div>
+
+<!-- Module Cards -->
+<h2 class="section-title">参与流程的全部 16 个软件模块</h2>
+
+<div class="cards">
+  <div class="card card-trigger">
+    <h3>MOD-001 WebhookReceiver</h3>
+    <div class="mod-id">src/trigger/webhook_receiver.py</div>
+    <p>FastAPI HTTP 端点 <code>POST /webhook/alert</code>，接收 Mock Zabbix 告警推送，Pydantic 校验 AlertPayload 后交给 AlertNormalizer。</p>
+  </div>
+  <div class="card card-trigger">
+    <h3>MOD-002 InspectionScheduler</h3>
+    <div class="mod-id">src/trigger/inspection_scheduler.py</div>
+    <p>基于 APScheduler 的定时巡检，每 5 分钟调用 SwitchDiagTool 诊断所有纳管设备，检测到异常自动生成 RawInspectionEvent。</p>
+  </div>
+  <div class="card card-orch">
+    <h3>MOD-003 StateGraphEngine</h3>
+    <div class="mod-id">src/orchestration/state_graph_engine.py</div>
+    <p>LangGraph 状态机引擎：14 节点 + 4 条件边 + 1 中断点。管理 run/resume/checkpoint/state query。</p>
+  </div>
+  <div class="card card-orch">
+    <h3>MOD-004 AlertNormalizer</h3>
+    <div class="mod-id">src/orchestration/alert_normalizer.py</div>
+    <p>告警归一化器：类型映射、时效检查(TTL=15min)、去重(alert_type::device_name, 内存缓存100条)。</p>
+  </div>
+  <div class="card card-orch">
+    <h3>MOD-005 NodeHandlers</h3>
+    <div class="mod-id">src/orchestration/node_handlers.py</div>
+    <p>14 个 LangGraph 节点处理函数，协调调用 MOD-006~015 完成所有业务逻辑。依赖注入设计，全部可单测。</p>
+  </div>
+  <div class="card card-llm">
+    <h3>MOD-006 LLMService</h3>
+    <div class="mod-id">src/llm/llm_service.py</div>
+    <p>DeepSeek API 封装：根因分析(自由推理)、模板参数填充(纯JSON约束)、报告生成。temperature=0.1，重试3次。</p>
+  </div>
+  <div class="card card-llm">
+    <h3>MOD-007 TemplateEngine</h3>
+    <div class="mod-id">src/llm/template_engine.py</div>
+    <p>Jinja2 沙箱模板引擎，100% 确定性，不接受任何 LLM 代码。YAML 模板 → CLI 命令列表。</p>
+  </div>
+  <div class="card card-llm">
+    <h3>MOD-008 RAGService</h3>
+    <div class="mod-id">src/llm/rag_service.py</div>
+    <p>Chroma 向量数据库：文档嵌入、语义检索、元数据过滤(alert_type)。不可用时降级为关键词匹配 fallback。</p>
+  </div>
+  <div class="card card-llm">
+    <h3>MOD-009 OutputValidator</h3>
+    <div class="mod-id">src/llm/output_validator.py</div>
+    <p>LLM 输出安全校验：JSON Schema 校验 + CLI 命令黑名单正则扫描。任何注入尝试触发 SECURITY_ALERT 审计。</p>
+  </div>
+  <div class="card card-tool">
+    <h3>MOD-010 SwitchConfigTool</h3>
+    <div class="mod-id">src/tools/switch_config_tool.py</div>
+    <p>配置下发工具（策略模式：Mock + TP-Link 预留）。LangChain BaseTool 封装，逐条命令执行。</p>
+  </div>
+  <div class="card card-tool">
+    <h3>MOD-011 SwitchDiagTool</h3>
+    <div class="mod-id">src/tools/switch_diag_tool.py</div>
+    <p>诊断命令工具（策略模式），Mock 实现为 3 种告警类型提供逼真模拟数据（MAC表/接口状态/CPU进程）。</p>
+  </div>
+  <div class="card card-tool">
+    <h3>MOD-012 BackupTool</h3>
+    <div class="mod-id">src/tools/backup_tool.py</div>
+    <p>配置备份与回滚工具（策略模式），backup 返回模拟 running-config + UUID，rollback 模拟恢复。</p>
+  </div>
+  <div class="card card-tool">
+    <h3>MOD-013 KnowledgeBaseTool</h3>
+    <div class="mod-id">src/tools/knowledge_base_tool.py</div>
+    <p>LangChain BaseTool 封装 MOD-008 RAGService，提供标准 Tool 接口的知识库检索。</p>
+  </div>
+  <div class="card card-security">
+    <h3>MOD-014 RiskAssessor</h3>
+    <div class="mod-id">src/security/risk_assessor.py</div>
+    <p>纯正则匹配风险评估：7种高风险模式(shutdown/VLAN删除/重启/路由变更等)。HIGH/CRITICAL → 强制人工审批。</p>
+  </div>
+  <div class="card card-security">
+    <h3>MOD-015 AuditLogger</h3>
+    <div class="mod-id">src/security/audit_logger.py</div>
+    <p>全链路审计（单例）：节点执行日志 + 不可篡改审计文件追加 + 审批挂起管理。loguru 结构化输出。</p>
+  </div>
+  <div class="card card-security">
+    <h3>MOD-016 ConfigManager</h3>
+    <div class="mod-id">src/security/config_manager.py</div>
+    <p>全局配置管理（单例）：YAML 加载 + 点号嵌套 key 读写 + 环境变量覆盖设备密码。线程安全。</p>
+  </div>
+</div>
+
+<!-- Data Structures -->
+<h2 class="section-title">核心数据结构 (Pydantic BaseModel)</h2>
+
+<table class="ds-table">
+<tr><th>模型</th><th>文件</th><th>用途</th><th>关键字段</th></tr>
+<tr>
+  <td><code>AlertPayload</code></td>
+  <td>models/alert.py</td>
+  <td>Webhook 输入 (IFC-001)</td>
+  <td>alert_name, alert_type, alert_severity, alert_host, alert_ip, alert_time, alert_description, alert_interface, alert_mac, alert_cpu, event_id</td>
+</tr>
+<tr>
+  <td><code>Alert</code></td>
+  <td>models/alert.py</td>
+  <td>标准化告警对象</td>
+  <td>alert_id(UUID), alert_type(enum), alert_severity, alert_content, alert_timestamp, device_info, source</td>
+</tr>
+<tr>
+  <td><code>DeviceInfo</code></td>
+  <td>models/alert.py</td>
+  <td>设备信息</td>
+  <td>device_name, device_ip, device_model, interface_name, mac_address, cpu_percent</td>
+</tr>
+<tr>
+  <td><code>NetworkAgentState</code></td>
+  <td>models/state.py</td>
+  <td>LangGraph 状态字典 (TypedDict)</td>
+  <td>alert_id, alert_type, alert_content, device_info, diag_result, root_cause, fix_plan, need_human_approval, approval_status, exec_log, verify_result, final_report, status</td>
+</tr>
+<tr>
+  <td><code>FixPlan</code></td>
+  <td>models/fix_plan.py</td>
+  <td>修复方案</td>
+  <td>template_id, params{}, commands[], risk_hints[], description</td>
+</tr>
+<tr>
+  <td><code>ExecRecord</code></td>
+  <td>models/fix_plan.py</td>
+  <td>单条命令执行记录</td>
+  <td>command, success, output, error, execution_time_ms, was_idempotent_skip</td>
+</tr>
+<tr>
+  <td><code>VerifyResult</code></td>
+  <td>models/fix_plan.py</td>
+  <td>验证结果</td>
+  <td>verify_passed, before_state, after_state, comparison_notes</td>
+</tr>
+<tr>
+  <td><code>RiskAssessment</code></td>
+  <td>models/fix_plan.py</td>
+  <td>风险评估结果</td>
+  <td>risk_level, need_human_approval, risk_reasons[], matched_high_risk_patterns[]</td>
+</tr>
+<tr>
+  <td><code>PendingApproval</code></td>
+  <td>models/state.py</td>
+  <td>挂起审批项 (API 返回)</td>
+  <td>checkpoint_id, alert_id, alert_type, fix_plan_summary, risk_level, risk_reasons[]</td>
+</tr>
+<tr>
+  <td><code>ApprovalDecision</code></td>
+  <td>models/state.py</td>
+  <td>审批决定 (API 输入)</td>
+  <td>checkpoint_id, decision("APPROVED"/"REJECTED"), operator, comment</td>
+</tr>
+</table>
+
+<!-- Storage -->
+<h2 class="section-title">数据存储方式（无传统关系型数据库）</h2>
+
+<table class="ds-table">
+<tr><th>存储方式</th><th>用途</th><th>位置/实现</th><th>生命周期</th></tr>
+<tr><td><strong>LangGraph MemorySaver</strong></td><td>工作流状态检查点（State 快照），支持 Interrupt 恢复</td><td>内存 (<code>state_graph_engine.py:44</code>)</td><td>进程存活期</td></tr>
+<tr><td><strong>Chroma 向量数据库</strong></td><td>知识库文档向量索引，语义检索</td><td><code>./data/chroma_db/</code>（持久化）</td><td>持久化</td></tr>
+<tr><td><strong>文件系统审计日志</strong></td><td>不可篡改的审计追踪（配置变更/审批/回滚/安全告警）</td><td><code>./logs/audit.log</code>（永久追加）</td><td>持久化</td></tr>
+<tr><td><strong>文件系统操作日志</strong></td><td>每个节点的 START/END 执行记录</td><td><code>./logs/operations_{date}.log</code>（按日轮转，保留30天）</td><td>30天</td></tr>
+<tr><td><strong>内存去重缓存</strong></td><td>AlertNormalizer 告警去重</td><td><code>AlertNormalizer._cache</code>（dict, TTL=15min, 最大100条）</td><td>进程存活期</td></tr>
+<tr><td><strong>内存审批字典</strong></td><td>等待人工审批的记录</td><td><code>AuditLogger._pending_approvals</code>（dict）</td><td>进程存活期</td></tr>
+<tr><td><strong>YAML 配置文件</strong></td><td>全局配置参数（巡检间隔/超时/TTL等）</td><td><code>./config/config.yaml</code> + 环境变量覆盖</td><td>持久化</td></tr>
+</table>
+
+<div class="note">
+<strong>💡 关键设计决策：LLM 只填参数，不生成命令</strong><br/>
+整个流程中，LLM（DeepSeek API）仅负责两件事：<strong>根因分析</strong>（自由推理）和<strong>模板参数填充</strong>（纯 JSON 约束输出）。
+实际的 CLI 命令由 <strong>TemplateEngine（Jinja2 沙箱）</strong> 确定性拼装 —— 模板是运维专家预先审核过的 YAML 文件，
+OutputValidator 对 LLM 输出进行 JSON Schema + CLI 黑名单双重校验，确保 LLM 的"幻觉"或"注入攻击"永远无法到达交换机执行层。
+</div>
+
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: {
+      useMaxWidth: true,
+      htmlLabels: true,
+      curve: 'basis',
+      padding: 20,
+    },
+    securityLevel: 'loose',
+  });
+</script>
+</body>
+</html>

@@ -213,6 +213,15 @@ class OutputValidator:
         except json.JSONDecodeError:
             pass
 
+        # 尝试单引号→双引号（DeepSeek 偶尔输出 Python repr 格式）
+        try:
+            fixed = raw.replace("'", '"')
+            fixed = re.sub(r",\s*}", "}", fixed)
+            fixed = re.sub(r",\s*]", "]", fixed)
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            pass
+
         # 最后一次尝试
         return json.loads(raw)
 
