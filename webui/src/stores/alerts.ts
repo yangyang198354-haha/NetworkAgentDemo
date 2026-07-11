@@ -64,10 +64,15 @@ export const useAlertsStore = defineStore('alerts', () => {
     return resp
   }
 
+  async function sendWebhook(data: Record<string, any>) {
+    const resp: any = await client.post('/webhook/alert', data)
+    return resp
+  }
+
   function updateFilters(newFilters: Partial<AlertFilter>) {
     Object.assign(filters, newFilters)
     pagination.page = 1
   }
 
-  return { alertList, currentAlert, filters, pagination, loading, fetchAlerts, fetchAlertDetail, simulateAlert, updateFilters }
+  return { alertList, currentAlert, filters, pagination, loading, fetchAlerts, fetchAlertDetail, simulateAlert, sendWebhook, updateFilters }
 })

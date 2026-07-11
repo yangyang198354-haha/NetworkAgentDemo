@@ -7,6 +7,13 @@
     <el-card>
       <template #header><span>模拟告警发送</span></template>
       <el-form :model="form" :rules="rules" ref="formRef" label-width="120px" style="max-width:600px">
+        <el-form-item label="来源" prop="source">
+          <el-radio-group v-model="form.source">
+            <el-radio value="MOCK">MOCK（模拟器触发）</el-radio>
+            <el-radio value="WEBHOOK">WEBHOOK（模拟 Zabbix 推送）</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
         <el-form-item label="告警类型" prop="alert_type">
           <el-select v-model="form.alert_type" style="width:100%">
             <el-option label="端口Down (PORT_DOWN)" value="PORT_DOWN" />
@@ -63,6 +70,7 @@ const result = ref('')
 const formRef = ref()
 
 const form = reactive({
+  source: 'MOCK',
   alert_type: 'PORT_DOWN',
   device_name: 'Core-SW-01',
   device_ip: '192.168.1.1',
@@ -88,19 +96,48 @@ async function handleSend() {
   sending.value = true
   result.value = ''
   try {
-    const resp: any = await alertsStore.simulateAlert({
-      alert_type: form.alert_type,
-      device_name: form.device_name,
-      device_ip: form.device_ip,
-      interface: form.interface || undefined,
-      mac_address: form.mac_address || undefined,
-      cpu_percent: form.cpu_percent || undefined,
-    })
-    result.value = `模拟告警已发送！alert_id: ${resp.alert_id}`
+    if (form.source === 'WEBHOOK') {
+      // POST /webhook/alert — Zabbix-format payload
+      const resp: any = await alertsStore.sendWebhook({
+        alert_name: `[Webhook] ${form.alert_type} on ${form.device_name}`,
+        alert_type: form.alert_type,
+        alert_severity: 'MAJOR',
+        alert_host: form.device_name,
+        alert_ip: form.device_ip,
+        alert_time: new Date().toISOString(),
+        alert_description: getWebhookDescription(),
+        alert_interface: form.interface || undefined,
+        alert_mac: form.mac_address || undefined,
+        alert_cpu: form.cpu_percent || undefined,
+        event_id: `WEB-${Date.now()}`,
+      })
+      result.value = `Webhook 已发送！alert_id: ${resp.alert_id}, source: ZABBIX`
+    } else {
+      // POST /api/alerts/simulate
+      const resp: any = await alertsStore.simulateAlert({
+        alert_type: form.alert_type,
+        device_name: form.device_name,
+        device_ip: form.device_ip,
+        interface: form.interface || undefined,
+        mac_address: form.mac_address || undefined,
+        cpu_percent: form.cpu_percent || undefined,
+      })
+      result.value = `模拟告警已发送！alert_id: ${resp.alert_id}, source: MOCK`
+    }
   } catch {
     // Error handled by interceptor
   } finally {
     sending.value = false
   }
+}
+
+function getWebhookDescription(): string {
+  const map: Record<string, string> = {
+    PORT_DOWN: `接口 ${form.interface || 'Gi0/1'} 在设备 ${form.device_name} 上状态变更为 down`,
+    MAC_FLAPPING: `MAC地址 00:1A:2B:3C:4D:5E 在设备 ${form.device_name} 的VLAN 1内发生漂移`,
+    CPU_HIGH: `设备 ${form.device_name} 的CPU利用率在5秒内达到92%，超过告警阈值80%`,
+    PORT_SHUTDOWN: `接口 ${form.interface || 'Gi0/1'} 在设备 ${form.device_name} 上检测到安全威胁，需要紧急隔离`,
+  }
+  return map[form.alert_type] || `Webhook alert: ${form.alert_type} on ${form.device_name}`
 }
 </script>

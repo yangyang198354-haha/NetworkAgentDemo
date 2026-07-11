@@ -238,6 +238,26 @@ async def handle_webhook_alert(payload: AlertPayload):
     if alert is None:
         return AlertReceipt(alert_id="", status="DUPLICATE")
 
+    # Persist to SQLite
+    try:
+        from src.database.base import SessionLocal
+        from src.database.repositories.alert_repository import AlertRepository
+        db = SessionLocal()
+        try:
+            repo = AlertRepository(db)
+            repo.create_alert({
+                "alert_id": alert.alert_id,
+                "alert_type": str(alert.alert_type.value) if hasattr(alert.alert_type, 'value') else str(alert.alert_type),
+                "severity": str(alert.alert_severity.value) if hasattr(alert.alert_severity, 'value') else str(alert.alert_severity),
+                "content": alert.alert_content,
+                "device_info": alert.device_info.model_dump() if alert.device_info else {},
+                "source": str(alert.source.value) if hasattr(alert.source, 'value') else str(alert.source),
+            })
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Failed to persist webhook alert to DB: {e}")
+
     # 触发 LangGraph 工作流（在线程池中执行同步 StateGraph）
     def run_workflow():
         try:
