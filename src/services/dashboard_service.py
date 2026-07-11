@@ -16,6 +16,7 @@ from sqlalchemy import func, select, case
 from sqlalchemy.orm import Session
 
 from src.database.alert_models import Alert
+from src.database.approval_models import Approval
 
 
 class DashboardService:
@@ -58,10 +59,10 @@ class DashboardService:
         today_query = select(func.count(Alert.id)).where(Alert.created_at >= today_start)
         today_count = self.db.execute(today_query).scalar() or 0
 
-        # Pending approval count
+        # Pending approval count — count approvals where decision is PENDING (not yet decided)
         pending_query = (
-            select(func.count(Alert.id))
-            .where(Alert.status == "PROCESSING")
+            select(func.count(Approval.id))
+            .where((Approval.decision == "PENDING") | (Approval.decision == None))
         )
         pending_count = self.db.execute(pending_query).scalar() or 0
 

@@ -26,6 +26,44 @@ class DecisionRequest(BaseModel):
     note: str = ""
 
 
+# ── GET /api/approvals (combined: pending + recent history) ──
+
+@approvals_router.get("")
+async def get_all_approvals(db: Session = Depends(get_db)):
+    """Return pending approvals + recent history (combined for Web UI)."""
+    repo = ApprovalRepository(db)
+    pending = repo.list_pending_approvals()
+    history = repo.list_approval_history(page=1, page_size=20)
+
+    pending_result = [{
+        "checkpoint_id": p.checkpoint_id,
+        "alert_id": p.alert_id_fk,
+        "fix_plan": p.fix_plan,
+        "risk_level": p.risk_level,
+        "decision": p.decision or "PENDING",
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+    } for p in pending]
+
+    history_items = history.get("items", []) if isinstance(history, dict) else []
+    history_result = [{
+        "id": h.id,
+        "checkpoint_id": h.checkpoint_id,
+        "alert_id": h.alert_id_fk,
+        "fix_plan": h.fix_plan,
+        "risk_level": h.risk_level,
+        "decision": h.decision,
+        "operator": getattr(h, 'operator', ''),
+        "decided_at": h.created_at.isoformat() if h.created_at else None,
+    } for h in history_items]
+
+    return {
+        "pending": pending_result,
+        "pending_count": len(pending_result),
+        "history": history_result,
+        "history_total": history.get("total", len(history_result)) if isinstance(history, dict) else len(history_result),
+    }
+
+
 # ── GET /api/approvals/pending ─────────────────────────────
 
 @approvals_router.get("/pending")
