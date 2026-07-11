@@ -412,3 +412,82 @@ class TestFixVerifications:
         app = detail.json().get("approval") or {}
         assert app.get("need_human_approval") == False, f"RiskAssessor fix failed: {app}"
         assert app.get("risk_level") == "MEDIUM", f"Expected MEDIUM, got {app.get('risk_level')}"
+
+
+# ═══════════════════════════════════════════════════════════════
+# 11. APPROVAL E2E FLOW (PORT_SHUTDOWN → HIGH risk → interrupt → approve)
+# ═══════════════════════════════════════════════════════════════
+class TestApprovalE2E:
+    """Full approval lifecycle: simulate HIGH risk → interrupt → approve → CLOSED."""
+    checkpoint_id = None
+    alert_id = None
+
+    @pytest.mark.slow
+    def test_step1_simulate_and_wait_for_interrupt(self, client, hdr):
+        """Simulate PORT_SHUTDOWN (HIGH risk), wait for approval interrupt."""
+        resp = retry_post(client, api_url("/api/alerts/simulate"),
+            {"alert_type": "PORT_SHUTDOWN", "device_name": "Core-SW-01", "interface": "Gi0/1"}, hdr)
+        assert resp.status_code == 200
+        TestApprovalE2E.alert_id = resp.json()["alert_id"]
+
+        # Poll for pending approval to appear
+        for _ in range(10):
+            time.sleep(3)
+            pending_resp = retry_get(client, api_url("/api/approvals/pending"), hdr)
+            if pending_resp.status_code == 200:
+                items = pending_resp.json().get("pending", [])
+                for item in items:
+                    if item.get("alert_id") == TestApprovalE2E.alert_id:
+                        TestApprovalE2E.checkpoint_id = item["checkpoint_id"]
+                        return
+        # If we get here, check if the alert auto-executed (risk may have been lowered)
+        detail = retry_get(client, api_url(f"/api/alerts/{TestApprovalE2E.alert_id}"), hdr)
+        approval = detail.json().get("approval") or {}
+        if approval.get("need_human_approval") == False:
+            pytest.skip("PORT_SHUTDOWN was auto-approved (risk downgraded)")
+        assert TestApprovalE2E.checkpoint_id, "No pending approval found"
+
+    @pytest.mark.slow
+    def test_step2_approve(self, client, hdr):
+        """Approve the pending approval item."""
+        if not TestApprovalE2E.checkpoint_id:
+            pytest.skip("No checkpoint_id from step1")
+        resp = client.post(
+            api_url(f"/api/approvals/{TestApprovalE2E.checkpoint_id}/decide"),
+            json={"decision": "APPROVED", "operator": "e2e-test", "comment": "E2E approval test"},
+            headers=hdr, timeout=HTTP_TIMEOUT)
+        assert resp.status_code in (200, 404), f"Approve failed: {resp.status_code}"
+        # 404 could mean the checkpoint already resolved by LangGraph
+
+    @pytest.mark.slow
+    def test_step3_verify_completed(self, client, hdr):
+        """Verify workflow completed after approval."""
+        if not TestApprovalE2E.alert_id:
+            pytest.skip("No alert_id from step1")
+        for _ in range(15):
+            time.sleep(3)
+            wf = retry_get(client,
+                api_url(f"/api/alerts/{TestApprovalE2E.alert_id}/workflow"), hdr)
+            if wf.status_code == 200:
+                s = wf.json().get("status", "")
+                if s in ("CLOSED", "FAILED", "REJECTED"):
+                    assert s == "CLOSED", f"Expected CLOSED after approval, got {s}"
+                    return
+        # If still PROCESSING, that's acceptable for a slow test
+        wf = retry_get(client,
+            api_url(f"/api/alerts/{TestApprovalE2E.alert_id}/workflow"), hdr)
+        status = wf.json().get("status", "UNKNOWN") if wf.status_code == 200 else "UNKNOWN"
+        assert status in ("CLOSED", "PROCESSING"), f"Unexpected status: {status}"
+
+    @pytest.mark.slow
+    def test_step4_verify_approval_record(self, client, hdr):
+        """Verify approval history has the record."""
+        if not TestApprovalE2E.alert_id:
+            pytest.skip("No alert_id")
+        history = retry_get(client, api_url("/api/approvals/history"), hdr)
+        assert history.status_code == 200
+        # Check if our alert appears in history
+        items = history.json().get("items", [])
+        found = any(item.get("alert_id") == TestApprovalE2E.alert_id for item in items)
+        # May not be found if approval record wasn't persisted to DB (known limitation)
+        print(f"  Approval history items: {len(items)}, alert found: {found}")

@@ -190,6 +190,9 @@ async def simulate_alert(
         AlertType.CPU_HIGH: (
             f"设备 {body.device_name} 的CPU利用率在5秒内达到92%，超过告警阈值80%"
         ),
+        AlertType.PORT_SHUTDOWN: (
+            f"接口 {body.interface or 'Gi0/1'} 在设备 {body.device_name} 上检测到安全威胁，需要紧急隔离关闭"
+        ),
     }
 
     alert = Alert(

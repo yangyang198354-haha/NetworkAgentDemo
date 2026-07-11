@@ -68,12 +68,13 @@ async def get_all_approvals(db: Session = Depends(get_db)):
 
 @approvals_router.get("/pending")
 async def get_pending_approvals(db: Session = Depends(get_db)):
-    """Return all pending approval items."""
+    """Return all pending approval items (from DB + in-memory)."""
     repo = ApprovalRepository(db)
-    items = repo.list_pending_approvals()
+    db_items = repo.list_pending_approvals()
 
     result = []
-    for item in items:
+    seen_ids = set()
+    for item in db_items:
         result.append({
             "checkpoint_id": item.checkpoint_id,
             "alert_id": item.alert_id_fk,
@@ -82,6 +83,26 @@ async def get_pending_approvals(db: Session = Depends(get_db)):
             "decision": item.decision or "PENDING",
             "created_at": item.created_at.isoformat() if item.created_at else None,
         })
+        seen_ids.add(item.checkpoint_id)
+
+    # Also check in-memory AuditLogger for LangGraph-pending items
+    import sys
+    main_module = sys.modules.get("src.main")
+    if main_module:
+        try:
+            mem_items = main_module.state_graph_engine.get_pending_approvals()
+            for mi in mem_items:
+                if mi.checkpoint_id not in seen_ids:
+                    result.append({
+                        "checkpoint_id": mi.checkpoint_id,
+                        "alert_id": mi.alert_id,
+                        "fix_plan": mi.fix_plan_summary,
+                        "risk_level": mi.risk_level,
+                        "decision": "PENDING",
+                        "created_at": mi.created_at.isoformat() if hasattr(mi, 'created_at') else None,
+                    })
+        except Exception:
+            pass
 
     return {"pending": result, "count": len(result)}
 

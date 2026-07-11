@@ -12,6 +12,7 @@ class AlertType(str, Enum):
     MAC_FLAPPING = "MAC_FLAPPING"
     PORT_DOWN = "PORT_DOWN"
     CPU_HIGH = "CPU_HIGH"
+    PORT_SHUTDOWN = "PORT_SHUTDOWN"  # 端口需要隔离关闭（触发审批流程）
 
 
 class AlertSeverity(str, Enum):

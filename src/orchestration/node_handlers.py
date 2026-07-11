@@ -432,11 +432,35 @@ class NodeHandlers:
 
         assessment: RiskAssessment = self.risk_assessor.assess(fix_plan)
 
-        self._log_node(state, node, "END")
-        return {
+        result: dict[str, Any] = {
             "need_human_approval": assessment.need_human_approval,
             "risk_level": assessment.risk_level,
         }
+
+        # If approval is needed, set PENDING status immediately (before interrupt)
+        if assessment.need_human_approval:
+            result["approval_status"] = "PENDING"
+            # Register pending approval so it appears in API
+            alert_id = state.get("alert_id", "")
+            alert_type = state.get("alert_type", "")
+            alert_content = state.get("alert_content", "")
+            device_info = state.get("device_info", {})
+            pending = PendingApprovalRecord(
+                checkpoint_id=alert_id,
+                alert_id=alert_id,
+                alert_type=alert_type,
+                alert_content=alert_content,
+                device_name=device_info.get("device_name", "Unknown"),
+                fix_plan_summary=fix_plan.description or fix_plan.template_id or "",
+                risk_level=assessment.risk_level,
+                risk_reasons=assessment.risk_reasons,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            self.audit_logger.register_pending_approval(pending)
+            logger.info(f"Approval PENDING for alert {alert_id} (risk={assessment.risk_level})")
+
+        self._log_node(state, node, "END")
+        return result
 
     # ── IFC-005-10: handle_human_approval ────────────────
 
@@ -714,6 +738,7 @@ class NodeHandlers:
             AlertType.MAC_FLAPPING: "TPL-MAC-PORT-SECURITY",
             AlertType.PORT_DOWN: "TPL-PORT-ENABLE",
             AlertType.CPU_HIGH: "TPL-CPU-RATE-LIMIT",
+            AlertType.PORT_SHUTDOWN: "TPL-PORT-DISABLE",  # 高风险：需要审批
         }
         return default_map.get(alert_type, "TPL-PORT-ENABLE")
 

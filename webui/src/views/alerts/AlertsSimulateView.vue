@@ -12,6 +12,7 @@
             <el-option label="端口Down (PORT_DOWN)" value="PORT_DOWN" />
             <el-option label="MAC地址漂移 (MAC_FLAPPING)" value="MAC_FLAPPING" />
             <el-option label="CPU利用率过高 (CPU_HIGH)" value="CPU_HIGH" />
+            <el-option label="端口安全隔离 ⚠️ (PORT_SHUTDOWN)" value="PORT_SHUTDOWN" />
           </el-select>
         </el-form-item>
 
@@ -27,7 +28,7 @@
           <el-input v-model="form.device_ip" placeholder="192.168.1.1" />
         </el-form-item>
 
-        <el-form-item label="接口名称" v-if="form.alert_type === 'PORT_DOWN'">
+        <el-form-item label="接口名称" v-if="form.alert_type === 'PORT_DOWN' || form.alert_type === 'PORT_SHUTDOWN'">
           <el-input v-model="form.interface" placeholder="Gi0/1" />
         </el-form-item>
 
