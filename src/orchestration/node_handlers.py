@@ -701,6 +701,19 @@ class NodeHandlers:
             logger.error(f"LLM generate_report failed: {e}")
             final_report = f"# Alert Processing Report\n\nAlert ID: {alert_id}\nStatus: {status}"
 
+        # Sync status to SQLite
+        try:
+            from src.database.base import SessionLocal
+            from src.database.repositories.alert_repository import AlertRepository
+            db = SessionLocal()
+            try:
+                AlertRepository(db).update_alert_status(alert_id, str(status))
+                logger.info(f"Alert status synced to DB: {alert_id} → {status}")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Failed to sync alert status to DB: {e}")
+
         self._log_node(state, node, "END")
         return {
             "final_report": final_report,
