@@ -160,7 +160,7 @@ async function handleCredentialSave() {
   ElMessage.success('凭据已配置')
 }
 
-function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
+function formatTime(t: string) { return t ? new Date(t + 'Z').toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
 </script>
 
 <style scoped>

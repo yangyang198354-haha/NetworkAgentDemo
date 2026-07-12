@@ -218,7 +218,7 @@ function approvalStatusText(status: string) {
   }[status] || status
 }
 function formatTime(t: string) {
-  return t ? new Date(t).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-'
+  return t ? new Date(t + 'Z').toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-'
 }
 </script>
 

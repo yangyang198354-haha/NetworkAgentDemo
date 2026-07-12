@@ -119,7 +119,7 @@ function statusColor(s: string) {
 }
 function cleanStatus(s: string) { return (s || '').replace('WorkflowStatus.', '') }
 function copyId(id: string) { navigator.clipboard.writeText(id).then(() => {}) }
-function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
+function formatTime(t: string) { return t ? new Date(t + 'Z').toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
 </script>
 
 <style scoped>

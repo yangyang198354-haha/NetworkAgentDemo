@@ -124,7 +124,7 @@ async function handleDelete(row: any) {
 }
 
 function onFilter() { store.fetchTemplates(filterAlertType.value || undefined) }
-function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
+function formatTime(t: string) { return t ? new Date(t + 'Z').toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
 </script>
 
 <style scoped>
