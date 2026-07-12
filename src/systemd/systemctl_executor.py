@@ -376,6 +376,9 @@ class SystemctlExecutor:
         cmd = [SUDO, SYSTEMCTL, action]
         if unit:
             cmd.append(unit)
+        # Use --no-block for start/restart to avoid waiting for oneshot service completion
+        if action in ("start", "restart"):
+            cmd.insert(2, "--no-block")
 
         logger.info(f"Executing systemctl: {' '.join(cmd)}")
         try:
