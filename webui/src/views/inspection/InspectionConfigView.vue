@@ -10,21 +10,19 @@
 -->
 <template>
   <div class="inspection-page">
-    <!-- v0.2.0: systemd Status Panel (REQ-INSP-005) -->
-    <el-alert v-if="!store.systemdAvailable" type="info" show-icon :closable="false"
-      title="当前环境不支持 systemd，定时巡检功能不可用。手动触发仍可使用。"
-      style="margin-bottom:20px" />
-
-    <el-card v-if="store.systemdAvailable" class="status-panel" v-loading="statusLoading">
+    <!-- v0.2.0: systemd Status Panel (REQ-INSP-005) — always visible -->
+    <el-card class="status-panel" v-loading="statusLoading">
       <template #header>
         <div class="card-header">
           <span>巡检服务状态</span>
-          <el-tag :type="timerActive ? 'success' : 'info'" size="small">
+          <el-tag v-if="store.timerStatus" :type="timerActive ? 'success' : 'info'" size="small">
             {{ timerActive ? '运行中' : '已停止' }}
           </el-tag>
-          <el-tag :type="timerEnabled ? 'primary' : 'warning'" size="small" style="margin-left:8px">
+          <el-tag v-if="store.timerStatus" :type="timerEnabled ? 'primary' : 'warning'" size="small" style="margin-left:8px">
             {{ timerEnabled ? '已启用' : '已禁用' }}
           </el-tag>
+          <el-tag v-if="!store.timerStatus" type="info" size="small">加载中...</el-tag>
+          <el-tag v-if="store.statusError" type="danger" size="small" style="margin-left:8px">⚠ 刷新失败</el-tag>
         </div>
       </template>
 

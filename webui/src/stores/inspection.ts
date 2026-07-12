@@ -59,6 +59,8 @@ export const useInspectionStore = defineStore('inspection', () => {
 
   // ── fetchStatus [NEW v0.2.0] ────────────────────────────
 
+  const statusError = ref(false)
+
   async function fetchStatus() {
     try {
       const resp: any = await client.get('/api/inspection/status')
@@ -66,12 +68,11 @@ export const useInspectionStore = defineStore('inspection', () => {
       timerStatus.value = resp.timer || null
       serviceStatus.value = resp.service || null
       lastInspection.value = resp.last_inspection || null
+      statusError.value = false
       return resp
     } catch {
-      systemdAvailable.value = false
-      timerStatus.value = null
-      serviceStatus.value = null
-      lastInspection.value = null
+      // Keep previous values on error — don't clear to null
+      statusError.value = true
       return null
     }
   }
@@ -148,6 +149,7 @@ export const useInspectionStore = defineStore('inspection', () => {
     serviceStatus,
     lastInspection,
     systemdAvailable,
+    statusError,
     // actions
     fetchConfig,
     updateConfig,
