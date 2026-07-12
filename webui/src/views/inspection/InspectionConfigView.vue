@@ -115,7 +115,7 @@
             @click="handleTrigger">
             {{ store.inspectionRunning ? '巡检执行中...' : '手动触发巡检' }}
           </el-button>
-          <el-button type="text" @click="$router.push('/inspection/history')" style="margin-left:16px">
+          <el-button link @click="$router.push('/inspection/history')" style="margin-left:16px">
             查看巡检历史 &rarr;
           </el-button>
         </el-card>
