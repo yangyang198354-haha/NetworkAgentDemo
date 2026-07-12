@@ -126,26 +126,48 @@ class ConfigManager:
     # ── IFC-016-04: get_device_credentials(device_name: str) → DeviceAuth | None ──
 
     def get_device_credentials(self, device_name: str) -> Optional[DeviceAuth]:
-        """查询设备凭据（支持环境变量覆盖密码）。"""
+        """查询设备凭据（config.yaml → SQLite → 环境变量）。"""
+        # 1. Try config.yaml
         devices = self.get("devices") or {}
         dev_cfg = devices.get(device_name)
-        if dev_cfg is None:
-            return None
+        if dev_cfg:
+            username = dev_cfg.get("username", "admin")
+            password = os.environ.get(f"DEVICE_{device_name.upper()}_PASSWORD", dev_cfg.get("password", ""))
+            return DeviceAuth(username=username, password=password, port=dev_cfg.get("port", 22))
 
-        username = dev_cfg.get("username", "admin")
-        password = os.environ.get(f"DEVICE_{device_name.upper()}_PASSWORD", dev_cfg.get("password", ""))
-        enable_password = os.environ.get(
-            f"DEVICE_{device_name.upper()}_ENABLE_PASSWORD",
-            dev_cfg.get("enable_password", ""),
-        )
-        port = dev_cfg.get("port", 22)
+        # 2. Try SQLite device table (with credential relation)
+        try:
+            from src.database.base import SessionLocal
+            from src.database.device_models import Device as DbDevice
+            from sqlalchemy import select
+            from sqlalchemy.orm import joinedload
+            db = SessionLocal()
+            try:
+                result = db.execute(
+                    select(DbDevice).where(DbDevice.device_name == device_name)
+                    .options(joinedload(DbDevice.credential))
+                ).scalar_one_or_none()
+                if result and result.credential:
+                    cred = result.credential
+                    pwd = os.environ.get(f"DEVICE_{device_name.upper()}_PASSWORD", "")
+                    if not pwd:
+                        try:
+                            from src.services.encryption_service import decrypt_credential
+                            pwd = decrypt_credential(cred.ssh_password_encrypted)
+                        except Exception:
+                            pwd = ""
+                    return DeviceAuth(
+                        username=cred.ssh_username or "admin",
+                        password=pwd or "admin123",
+                        port=cred.ssh_port or 22,
+                    )
+            finally:
+                db.close()
+        except Exception:
+            pass  # DB not available
 
-        return DeviceAuth(
-            username=username,
-            password=password,
-            enable_password=enable_password or None,
-            port=port,
-        )
+        # 3. Fallback: default credentials
+        return DeviceAuth(username="admin", password="admin123")
 
     # ── 内部辅助 ──────────────────────────────────────────────
 

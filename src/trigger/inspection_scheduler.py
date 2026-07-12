@@ -93,15 +93,44 @@ class InspectionScheduler:
 
     # ── IFC-002-03: run_inspection_once ──────────────────
 
-    def run_inspection_once(self, device_list: list[DeviceInfo]) -> list[RawInspectionEvent]:
+    def run_inspection_once(self, device_list: list[DeviceInfo] | None = None) -> list[RawInspectionEvent]:
         """
         手动触发一次巡检，对所有纳管设备执行健康检查。
+        优先从 SQLite 读取设备列表，为空则用传入的 device_list。
         返回检测到的异常事件列表。
         """
-        events: list[RawInspectionEvent] = []
-        logger.info(f"Inspection started for {len(device_list)} device(s)")
+        # Try to read devices from SQLite first
+        effective_devices = device_list or []
+        try:
+            from src.database.base import SessionLocal
+            from src.database.device_models import Device as DbDevice
+            from sqlalchemy import select
+            db = SessionLocal()
+            try:
+                db_devices = db.execute(select(DbDevice)).scalars().all()
+                if db_devices:
+                    effective_devices = [
+                        DeviceInfo(
+                            device_name=d.device_name,
+                            device_ip=d.device_ip,
+                            device_model=d.device_model,
+                        )
+                        for d in db_devices
+                    ]
+                    logger.info(f"Inspection using {len(effective_devices)} device(s) from database")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug(f"Inspection DB device read skipped: {e}")
 
-        for device in device_list:
+        if not effective_devices:
+            logger.warning("No devices configured for inspection")
+            return []
+
+        events: list[RawInspectionEvent] = []
+        logger.info(f"Inspection started for {len(effective_devices)} device(s)")
+
+        for device in effective_devices:
             device_events = self._inspect_device(device)
             events.extend(device_events)
 
