@@ -237,6 +237,7 @@ class SystemctlExecutor:
     def enable_timer(self) -> SystemctlResult:
         """
         启用 networkagent-inspection.timer（systemctl enable + start）。
+        先停止任何残留的 service 进程（包括 auto-restart 循环）。
         若 timer 已 enabled + active，返回幂等提示。
         """
         # Check current state for idempotent handling
@@ -247,6 +248,10 @@ class SystemctlExecutor:
                 action="enable",
                 message="timer 已处于启用状态，无需操作",
             )
+
+        # Stop any stuck service first (auto-restart loop, oneshot remnants)
+        self._exec_systemctl("stop", SERVICE_UNIT)
+        self._exec_systemctl("reset-failed", SERVICE_UNIT)
 
         # Enable the timer
         enable_result = self._exec_systemctl("enable", TIMER_UNIT)

@@ -56,27 +56,15 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <!-- v0.2.0: Control Button Group (REQ-INSP-008) -->
+      <!-- v0.2.0: Control Button Group (REQ-INSP-008) — simplified -->
       <div class="control-buttons" style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
-        <el-button type="primary" :disabled="!canStart" :loading="actionLoading === 'start'"
-          @click="confirmAction('start')">
-          启动
-        </el-button>
-        <el-button type="danger" :disabled="!canStop" :loading="actionLoading === 'stop'"
-          @click="confirmAction('stop')">
-          停止
-        </el-button>
-        <el-button type="warning" :disabled="!canRestart" :loading="actionLoading === 'restart'"
-          @click="confirmAction('restart')">
-          重启
-        </el-button>
         <el-button type="success" :disabled="!canEnable" :loading="actionLoading === 'enable'"
           @click="confirmAction('enable')">
-          启用定时器
+          ⏰ 启用定时巡检
         </el-button>
         <el-button type="danger" :disabled="!canDisable" :loading="actionLoading === 'disable'"
           @click="confirmAction('disable')">
-          禁用定时器
+          ⏸ 停止定时巡检
         </el-button>
       </div>
     </el-card>
