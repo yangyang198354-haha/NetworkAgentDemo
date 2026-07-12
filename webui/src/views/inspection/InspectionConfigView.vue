@@ -56,13 +56,13 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <!-- v0.2.0: Control Button Group (REQ-INSP-008) — simplified -->
+      <!-- v0.2.0: Control Button Group — always enabled, backend validates -->
       <div class="control-buttons" style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
-        <el-button type="success" :disabled="!canEnable" :loading="actionLoading === 'enable'"
+        <el-button type="success" :loading="actionLoading === 'enable'"
           @click="confirmAction('enable')">
           ⏰ 启用定时巡检
         </el-button>
-        <el-button type="danger" :disabled="!canDisable" :loading="actionLoading === 'disable'"
+        <el-button type="danger" :loading="actionLoading === 'disable'"
           @click="confirmAction('disable')">
           ⏸ 停止定时巡检
         </el-button>
@@ -142,36 +142,7 @@ const timerEnabled = computed(() =>
   store.timerStatus?.unitFileState === 'enabled'
 )
 
-const canStart = computed(() => {
-  if (!store.systemdAvailable) return false
-  const t = store.timerStatus
-  if (!t || t.activeState === 'not-found') return false
-  // Can start if service is not currently running
-  const s = store.serviceStatus
-  return !s || s.activeState !== 'active' || s.subState === 'dead'
-})
-
-const canStop = computed(() => {
-  if (!store.systemdAvailable) return false
-  const s = store.serviceStatus
-  return s?.activeState === 'active' && s?.subState === 'running'
-})
-
-const canRestart = computed(() => {
-  if (!store.systemdAvailable) return false
-  const t = store.timerStatus
-  return t?.activeState !== 'not-found'
-})
-
-const canEnable = computed(() => {
-  const t = store.timerStatus
-  return !t || t.unitFileState === 'disabled' || t.unitFileState === 'not-found'
-})
-
-const canDisable = computed(() => {
-  const t = store.timerStatus
-  return t?.unitFileState === 'enabled'
-})
+// Buttons always enabled — backend returns error if action invalid
 
 // ── Lifecycle ─────────────────────────────────────────────
 
