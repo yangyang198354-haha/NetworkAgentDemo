@@ -1,0 +1,20 @@
+[Unit]
+Description=NetworkAgent Inspection Service
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={{ python_bin }} -m src.inspection_cli run
+WorkingDirectory={{ working_directory }}
+User={{ user }}
+Group={{ user }}
+Restart=on-failure
+RestartSec={{ restart_sec }}
+TimeoutStopSec={{ timeout_stop_sec }}
+StandardOutput=journal
+StandardError=journal
+Environment=NETWORKAGENT_HOME={{ working_directory }}
+
+[Install]
+WantedBy=multi-user.target

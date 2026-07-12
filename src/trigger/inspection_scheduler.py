@@ -1,10 +1,13 @@
 """
-MOD-002: InspectionScheduler — Periodic inspection trigger via APScheduler.
+[DEPRECATED v0.2.0] MOD-002: InspectionScheduler — 已废弃。
 @author sub_agent_software_developer
-@module MOD-002
-@implements IFC-002-01, IFC-002-02, IFC-002-03
-@depends MOD-004 (AlertNormalizer), MOD-011 (SwitchDiagTool), MOD-016 (ConfigManager)
-@covers REQ-FUNC-003
+@module MOD-002 (DEPRECATED)
+@see MOD-INSP-003 (src/inspection_cli.py) for migrated inspection logic
+
+v0.2.0 巡检调度引擎从 APScheduler 迁移至 systemd timer + service（REQ-INSP-017）。
+- start_scheduler() / stop_scheduler() → 废弃，由 systemd timer 替代
+- run_inspection_once() → 核心逻辑已迁移至 MOD-INSP-003 (src/inspection_cli.py)
+- 本文件保留仅用于代码参考，不参与 v0.2.0 运行时执行
 """
 
 from datetime import datetime, timezone

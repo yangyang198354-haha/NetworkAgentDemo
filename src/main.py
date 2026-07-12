@@ -54,7 +54,8 @@ from src.orchestration.node_handlers import NodeHandlers
 from src.orchestration.state_graph_engine import StateGraphEngine
 
 from src.trigger.webhook_receiver import WebhookReceiver
-from src.trigger.inspection_scheduler import InspectionScheduler
+# [DEPRECATED v0.2.0] APScheduler 调度器已废弃，巡检调度迁移至 systemd timer + service
+# from src.trigger.inspection_scheduler import InspectionScheduler
 
 # ── MOD-WEB: Web UI 新增模块导入 ───────────────────────────
 from src.database.base import create_engine as db_create_engine, init_session, init_db, get_db as db_get_db
@@ -99,11 +100,12 @@ node_handlers = NodeHandlers(
 state_graph_engine = StateGraphEngine(node_handlers=node_handlers)
 
 webhook_receiver = WebhookReceiver(normalizer=alert_normalizer)
-inspection_scheduler = InspectionScheduler(
-    normalizer=alert_normalizer,
-    diag_tool=switch_diag_tool,
-    config_manager=config_manager,
-)
+# [DEPRECATED v0.2.0] APScheduler 调度器已废弃，巡检调度迁移至 systemd timer + service
+# inspection_scheduler = InspectionScheduler(
+#     normalizer=alert_normalizer,
+#     diag_tool=switch_diag_tool,
+#     config_manager=config_manager,
+# )
 
 # ── MOD-WEB: Web UI 单例 ───────────────────────────────────
 encryption_service = EncryptionService()
@@ -176,29 +178,20 @@ async def lifespan(app: FastAPI):
     state_graph_engine.build_graph()
     logger.info("LangGraph StateGraph compiled")
 
-    # 7. 启动巡检调度器（带默认设备列表）
-    default_devices = [
-        DeviceInfo(
-            device_name="Core-SW-01",
-            device_ip="192.168.1.1",
-            device_model="TP-Link T2600G-28TS",
-        ),
-        DeviceInfo(
-            device_name="Access-SW-02",
-            device_ip="192.168.1.2",
-            device_model="TP-Link T2600G-28TS",
-        ),
-    ]
-    interval = config_manager.get("inspection.interval_minutes") or 5
-    inspection_scheduler.start_scheduler(interval_minutes=interval, device_list=default_devices)
-    logger.info(f"InspectionScheduler started (interval={interval}min)")
+    # [DEPRECATED v0.2.0] 巡检调度已迁移至 systemd timer + service（REQ-INSP-017）
+    # systemd timer 通过 MOD-INSP-003 (inspection_cli.py) 独立进程触发
+    # Web 进程不再承载巡检调度逻辑
+    # 原 APScheduler 初始化代码已移除：
+    #   default_devices = [...]
+    #   interval = config_manager.get("inspection.interval_minutes") or 5
+    #   inspection_scheduler.start_scheduler(interval_minutes=interval, device_list=default_devices)
 
     logger.info("NetworkAgentDemo is ready!")
     yield
 
     # ── 关闭 ──
     logger.info("NetworkAgentDemo shutting down...")
-    inspection_scheduler.stop_scheduler()
+    # [DEPRECATED v0.2.0] inspection_scheduler.stop_scheduler() 已移除
     logger.info("NetworkAgentDemo shutdown complete.")
 
 
@@ -372,10 +365,11 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "NetworkAgentDemo",
+        "version": "0.2.0",
         "components": {
             "langgraph": state_graph_engine._graph is not None,
             "rag": rag_service._use_chroma or len(rag_service._fallback_docs) > 0,
-            "scheduler": inspection_scheduler._scheduler is not None,
+            # [DEPRECATED v0.2.0] scheduler component removed (REQ-INSP-017)
         },
     }
 

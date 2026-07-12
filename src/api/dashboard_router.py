@@ -54,10 +54,26 @@ async def get_dashboard_health(db: Session = Depends(get_db)):
             "status": "healthy",
             "detail": f"Chroma OK, {len(main_module.rag_service._fallback_docs)} documents",
         }
-        sched = main_module.inspection_scheduler
-        base_health["scheduler"] = {
-            "status": "healthy" if sched._scheduler is not None else "error",
-            "detail": "Running" if sched._scheduler is not None else "Not running",
-        }
+        # v0.2.0: inspection moved from APScheduler to systemd timer
+        try:
+            sched = main_module.inspection_scheduler
+            base_health["scheduler"] = {
+                "status": "healthy" if sched._scheduler is not None else "error",
+                "detail": "APScheduler" if sched._scheduler is not None else "Not running",
+            }
+        except AttributeError:
+            import subprocess
+            try:
+                result = subprocess.run(
+                    ["systemctl", "is-active", "networkagent-inspection.timer"],
+                    capture_output=True, text=True, timeout=5
+                )
+                active = result.stdout.strip()
+                base_health["scheduler"] = {
+                    "status": "healthy" if active == "active" else "warning",
+                    "detail": f"systemd timer: {active}",
+                }
+            except Exception:
+                base_health["scheduler"] = {"status": "unknown", "detail": "systemd timer not configured"}
 
     return base_health

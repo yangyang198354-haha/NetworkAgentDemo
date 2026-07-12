@@ -1,0 +1,11 @@
+[Unit]
+Description=NetworkAgent Inspection Timer
+
+[Timer]
+OnUnitActiveSec={{ on_unit_active_sec }}
+Unit=networkagent-inspection.service
+Persistent=true
+AccuracySec={{ accuracy_sec }}
+
+[Install]
+WantedBy=timers.target

@@ -24,8 +24,8 @@ chromadb>=0.5.0,<0.6.0
 # Templates
 jinja2>=3.1.0,<4.0.0
 
-# Scheduling
-apscheduler>=3.10.0,<4.0.0
+# [DEPRECATED v0.2.0] Scheduling — APScheduler replaced by systemd timer + service (REQ-INSP-017)
+# apscheduler>=3.10.0,<4.0.0
 
 # Network Devices (reserved for future TP-Link integration)
 # netmiko>=4.0.0,<5.0.0
