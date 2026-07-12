@@ -119,7 +119,12 @@ function statusColor(s: string) {
 }
 function cleanStatus(s: string) { return (s || '').replace('WorkflowStatus.', '') }
 function copyId(id: string) { navigator.clipboard.writeText(id).then(() => {}) }
-function formatTime(t: string) { return t ? new Date(t + 'Z').toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
+function formatTime(t: string) {
+  if (!t) return '-'
+  // Fix ambiguous SQLite timestamps: add Z only if no timezone already
+  const fixed = /[Zz]$|[+-]\d{2}:\d{2}$/.test(t) ? t : t + 'Z'
+  return new Date(fixed).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+}
 </script>
 
 <style scoped>

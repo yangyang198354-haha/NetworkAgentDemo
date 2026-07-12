@@ -218,7 +218,9 @@ function approvalStatusText(status: string) {
   }[status] || status
 }
 function formatTime(t: string) {
-  return t ? new Date(t + 'Z').toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-'
+  if (!t) return '-'
+  const fixed = /[Zz]$|[+-]\d{2}:\d{2}$/.test(t) ? t : t + 'Z'
+  return new Date(fixed).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
 }
 </script>
 
