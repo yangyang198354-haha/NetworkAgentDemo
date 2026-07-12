@@ -61,12 +61,36 @@ export const useInspectionStore = defineStore('inspection', () => {
 
   const statusError = ref(false)
 
+  /**
+   * Map snake_case API response to camelCase for UI consumption.
+   * Backend returns snake_case keys; frontend components use camelCase.
+   */
+  function mapTimer(raw: any) {
+    if (!raw) return null
+    return {
+      activeState: raw.active_state ?? '',
+      unitFileState: raw.unit_file_state ?? '',
+      nextTrigger: raw.next_trigger ?? null,
+      lastTrigger: raw.last_trigger ?? null,
+    }
+  }
+
+  function mapService(raw: any) {
+    if (!raw) return null
+    return {
+      activeState: raw.active_state ?? '',
+      subState: raw.sub_state ?? '',
+      lastResult: raw.last_result ?? '',
+      lastExecution: raw.last_execution ?? null,
+    }
+  }
+
   async function fetchStatus() {
     try {
       const resp: any = await client.get('/api/inspection/status')
       systemdAvailable.value = resp.systemd_available || false
-      timerStatus.value = resp.timer || null
-      serviceStatus.value = resp.service || null
+      timerStatus.value = mapTimer(resp.timer)
+      serviceStatus.value = mapService(resp.service)
       lastInspection.value = resp.last_inspection || null
       statusError.value = false
       return resp
