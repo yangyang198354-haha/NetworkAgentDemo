@@ -52,11 +52,13 @@ class TestConfigManager:
         assert "server" in mgr._config
 
     def test_get_device_credentials_nonexistent(self):
-        """get_device_credentials should return None for unknown device."""
+        """get_device_credentials returns default DeviceAuth for unknown device (fallback)."""
         mgr = ConfigManager()
         mgr._config = dict(DEFAULT_CONFIG)
         result = mgr.get_device_credentials("NonExistentDevice")
-        assert result is None
+        # Now returns default credentials instead of None (SQLite fallback)
+        assert result is not None
+        assert result.username == "admin"
 
     def test_deep_merge_preserves_existing(self):
         """Deep merge should preserve existing keys not in override."""

@@ -40,16 +40,17 @@ class TestRiskAssessor:
         assert result.need_human_approval is True
         assert any("shutdown" in r.lower() for r in result.risk_reasons)
 
-    def test_no_shutdown_triggers_high_risk(self):
-        """Port no-shutdown commands should trigger HIGH risk and approval."""
+    def test_no_shutdown_is_medium_risk(self):
+        """Port no-shutdown commands should be MEDIUM risk (standard recovery op)."""
         plan = FixPlan(
             template_id="TPL-PORT-ENABLE",
             params={"iface_name": "Gi0/1", "desc": "Recovered"},
             commands=["interface Gi0/1", "no shutdown", "description Auto-recovered"],
         )
         result = self.assessor.assess(plan)
-        assert result.risk_level == RiskLevel.HIGH
-        assert result.need_human_approval is True
+        assert result.risk_level == RiskLevel.MEDIUM
+        # Single MEDIUM pattern → auto-execute (no approval needed)
+        assert result.need_human_approval is False
 
     # ── AC-006-06: VLAN delete operations MUST trigger approval ──
     def test_vlan_delete_triggers_critical(self):
@@ -98,17 +99,18 @@ class TestRiskAssessor:
         assert result.need_human_approval is False
 
     def test_multiple_medium_commands_trigger_approval(self):
-        """Multiple MEDIUM-risk commands should trigger approval."""
+        """Multiple DIFFERENT MEDIUM-risk patterns should trigger approval."""
         plan = FixPlan(
-            template_id="TPL-STP-MULTI",
+            template_id="TPL-MIXED-MEDIUM",
             params={},
             commands=[
-                "spanning-tree vlan 1 priority 4096",
-                "spanning-tree vlan 1 root primary",
+                "spanning-tree vlan 1 priority 4096",  # MEDIUM: spanning-tree
+                "no shutdown",                          # MEDIUM: no shutdown
             ],
         )
         result = self.assessor.assess(plan)
         assert result.risk_level == RiskLevel.MEDIUM
+        # Two different MEDIUM patterns → need approval
         assert result.need_human_approval is True
 
     def test_write_memory_low_risk(self):
