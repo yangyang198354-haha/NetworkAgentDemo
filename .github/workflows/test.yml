@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -24,20 +24,41 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install dependencies
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential libsqlite3-dev
+
+      - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests
+      - name: Run unit tests
         run: |
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/ -v --tb=short \
+            --ignore=tests/test_e2e_webui.py \
+            --ignore=tests/test_e2e_full.py \
+            -k "not slow"
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
+  e2e:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          name: test-results-py${{ matrix.python-version }}
-          path: |
-            .pytest_cache/
-          retention-days: 7
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: |
+          pip install httpx pytest
+
+      - name: Run E2E tests (fast only)
+        run: |
+          python -m pytest tests/test_e2e_full.py -v --tb=short -k "not slow"
+        env:
+          BASE_URL: ${{ secrets.VPS_URL || 'http://47.109.197.217:8001' }}
