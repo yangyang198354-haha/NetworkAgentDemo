@@ -164,13 +164,11 @@ const canRestart = computed(() => {
 })
 
 const canEnable = computed(() => {
-  if (!store.systemdAvailable) return false
   const t = store.timerStatus
   return !t || t.unitFileState === 'disabled' || t.unitFileState === 'not-found'
 })
 
 const canDisable = computed(() => {
-  if (!store.systemdAvailable) return false
   const t = store.timerStatus
   return t?.unitFileState === 'enabled'
 })
