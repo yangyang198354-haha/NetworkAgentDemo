@@ -64,7 +64,7 @@ function handleSearch() {
 }
 
 function levelColor(l: string) { return { INFO: '', WARNING: 'warning', ERROR: 'danger' }[l] || '' }
-function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
+function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
 </script>
 
 <style scoped>

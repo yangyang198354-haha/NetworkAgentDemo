@@ -112,7 +112,7 @@ async function handleDelete(row: any) {
 }
 
 function onFilter() { store.fetchDocuments(filterAlertType.value || undefined) }
-function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
+function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
 </script>
 
 <style scoped>

@@ -72,7 +72,7 @@ function showConfirm(decision: string) {
 }
 
 function riskColor(r: string) { return { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', CRITICAL: 'danger' }[r] || '' }
-function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
+function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
 </script>
 
 <style scoped>

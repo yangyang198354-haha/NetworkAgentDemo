@@ -43,5 +43,5 @@ const filterDecision = ref('')
 
 onMounted(() => store.fetchHistory())
 function onFilter() { store.fetchHistory(filterDecision.value ? { decision: filterDecision.value } : {}) }
-function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
+function formatTime(t: string) { return t ? new Date(t).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '-' }
 </script>
