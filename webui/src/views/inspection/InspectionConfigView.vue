@@ -54,18 +54,39 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <!-- v0.2.0: Control Button Group — always enabled, backend validates -->
+      <!-- v0.3.0: Control Button Group — 5 buttons with systemd unavailable disabled (ADR-004, ADR-006) -->
       <div class="control-buttons" style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
         <el-button type="success" :loading="actionLoading === 'enable'"
+          :disabled="!store.systemdAvailable"
           @click="confirmAction('enable')">
           ⏰ 启用定时巡检
         </el-button>
         <el-button type="danger" :loading="actionLoading === 'disable'"
+          :disabled="!store.systemdAvailable"
           @click="confirmAction('disable')">
           ⏸ 停止定时巡检
         </el-button>
+        <!-- v0.3.0: New buttons for service start/stop/restart (REQ-FUNC-003/004/005, ADR-002) -->
+        <el-button type="success" :loading="actionLoading === 'start'"
+          :disabled="!store.systemdAvailable"
+          @click="confirmAction('start')">
+          启动巡检服务
+        </el-button>
+        <el-button type="danger" :loading="actionLoading === 'stop'"
+          :disabled="!store.systemdAvailable"
+          @click="confirmAction('stop')">
+          停止巡检服务
+        </el-button>
+        <el-button type="warning" :loading="actionLoading === 'restart'"
+          :disabled="!store.systemdAvailable"
+          @click="confirmAction('restart')">
+          重启巡检服务
+        </el-button>
       </div>
     </el-card>
+
+    <!-- MOD-005: Inline inspection summary (REQ-FUNC-002, ADR-005) -->
+    <InspectionSummaryCard :records="historyRecords" :loading="historyLoading" />
 
     <el-row :gutter="20" style="margin-top:20px">
       <!-- v0.2.0: Configuration Form (polling_interval → retry_backoff) -->
@@ -114,12 +135,17 @@
 import { reactive, ref, computed, onMounted, onUnmounted } from 'vue'
 import { useInspectionStore } from '@/stores/inspection'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import InspectionSummaryCard from '@/components/inspection/InspectionSummaryCard.vue'
 
 const store = useInspectionStore()
 const loading = ref(false)
 const saving = ref(false)
 const statusLoading = ref(false)
 const actionLoading = ref<string | null>(null)
+
+// MOD-005: History summary data state (REQ-FUNC-002, ADR-003)
+const historyRecords = ref<any[]>([])
+const historyLoading = ref(false)
 
 // Polling timer for status (REQ-INSP-005: 5-second interval)
 let statusPollingTimer: ReturnType<typeof setInterval> | null = null
@@ -140,7 +166,7 @@ const timerEnabled = computed(() =>
   store.timerStatus?.unitFileState === 'enabled'
 )
 
-// Buttons always enabled — backend returns error if action invalid
+// Buttons disabled when systemd unavailable (ADR-004); otherwise backend validates action
 
 // ── Lifecycle ─────────────────────────────────────────────
 
@@ -160,6 +186,9 @@ onMounted(async () => {
   // Initial status fetch + start polling (REQ-INSP-005: 5s interval)
   await refreshStatus()
   statusPollingTimer = setInterval(refreshStatus, 5000)
+
+  // MOD-005: Load recent 5 inspection records for inline summary (REQ-FUNC-002, ADR-003)
+  await fetchHistorySummary()
 })
 
 onUnmounted(() => {
@@ -175,6 +204,18 @@ async function refreshStatus() {
     await store.fetchStatus()
   } finally {
     statusLoading.value = false
+  }
+}
+
+// ── MOD-005: Fetch recent inspection history summary (REQ-FUNC-002, ADR-003) ─
+
+async function fetchHistorySummary() {
+  historyLoading.value = true
+  try {
+    await store.fetchHistory({ page: 1, page_size: 5 })
+    historyRecords.value = store.historyList
+  } finally {
+    historyLoading.value = false
   }
 }
 
@@ -209,6 +250,8 @@ async function handleTrigger() {
     await store.triggerInspection()
     ElMessage.success('巡检已触发')
     await refreshStatus()
+    // MOD-005: Refresh inline summary after manual trigger (REQ-FUNC-002 AC-002-03, ADR-003)
+    await fetchHistorySummary()
   } catch (e: any) {
     // Error handled by Axios interceptor, but also show specific message
     const detail = e?.response?.data?.detail
