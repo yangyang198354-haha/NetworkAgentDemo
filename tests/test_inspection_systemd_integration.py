@@ -85,7 +85,12 @@ from src.systemd.systemd_unit_manager import (
 @pytest.fixture(scope="function")
 def db_engine():
     """In-memory SQLite engine with all tables."""
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    from sqlalchemy.pool import StaticPool
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     init_session(engine)
     yield engine

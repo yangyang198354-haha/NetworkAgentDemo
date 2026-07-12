@@ -176,6 +176,8 @@ async def trigger_inspection(db: Session = Depends(get_db)):
                 status_code=409,
                 detail="巡检正在执行中，请等待完成后再触发"
             )
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
     except Exception:
         # If we can't check status, proceed anyway
         pass

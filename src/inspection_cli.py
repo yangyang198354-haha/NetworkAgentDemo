@@ -49,7 +49,7 @@ class CLIExitCode(enum.IntEnum):
     IFC-INSP-003-01: run() returns CLIExitCode.
     """
     SUCCESS = 0   # All devices normal
-    PARTIAL = 0   # Anomalies found (normal, not an error)
+    PARTIAL = 1   # Anomalies found (normal, not an error)
     FAILURE = 2   # System error (DB unreadable, all devices unreachable)
 
 

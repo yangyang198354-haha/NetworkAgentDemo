@@ -336,6 +336,8 @@ class TestEnableDisableTimer:
             )
             with patch.object(executor, "_exec_systemctl") as mock_exec:
                 mock_exec.side_effect = [
+                    SystemctlResult(success=True, action="stop", message="ok"),
+                    SystemctlResult(success=True, action="reset-failed", message="ok"),
                     SystemctlResult(success=True, action="enable", message="ok"),
                     SystemctlResult(success=False, action="start", message="start failed"),
                 ]

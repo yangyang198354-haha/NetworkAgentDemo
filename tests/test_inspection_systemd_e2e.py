@@ -40,7 +40,12 @@ from src.systemd.systemd_unit_manager import (
 
 @pytest.fixture(scope="function")
 def db_engine():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    from sqlalchemy.pool import StaticPool
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     init_session(engine)
     yield engine
@@ -73,7 +78,8 @@ def _seed_all(db: Session):
 
 def _create_app_with_full_mocks(monkeypatch, systemd_available=True):
     """Create FastAPI app with fully mocked systemd for E2E."""
-    from src.api import inspection_router as router_mod
+    from src.api import _inspection_router_module as router_mod
+    from src.api.inspection_router import inspection_router
     from fastapi import FastAPI
 
     mock_executor = MagicMock(spec=SystemctlExecutor)
@@ -102,11 +108,11 @@ def _create_app_with_full_mocks(monkeypatch, systemd_available=True):
             available=False, reason="no systemd"
         )
 
-    monkeypatch.setattr("src.api.inspection_router._get_systemctl_executor", lambda: mock_executor)
-    monkeypatch.setattr("src.api.inspection_router._get_systemd_unit_manager", lambda: mock_manager)
+    monkeypatch.setattr(router_mod, "_get_systemctl_executor", lambda: mock_executor)
+    monkeypatch.setattr(router_mod, "_get_systemd_unit_manager", lambda: mock_manager)
 
     app = FastAPI()
-    app.include_router(router_mod.inspection_router, prefix="/api/inspection", tags=["inspection"])
+    app.include_router(inspection_router, prefix="/api/inspection", tags=["inspection"])
     return app, mock_executor, mock_manager
 
 

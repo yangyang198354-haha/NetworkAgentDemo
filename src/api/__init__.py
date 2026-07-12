@@ -8,12 +8,14 @@ MOD-WEB-001: APIRouterLayer — API Router package init.
 
 from .dependencies import get_db, get_current_user
 
+from . import inspection_router as _inspection_router_module  # raw module (for test mocking)
+from .inspection_router import inspection_router
+
 from .auth_router import auth_router
 from .alerts_router import alerts_router
 from .workflow_router import workflow_router
 from .approvals_router import approvals_router
 from .devices_router import devices_router
-from .inspection_router import inspection_router
 from .kb_router import kb_router
 from .config_router import config_router
 from .dashboard_router import dashboard_router
@@ -34,4 +36,5 @@ api_router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboar
 __all__ = [
     "get_db", "get_current_user",
     "auth_router", "api_router",
+    "_inspection_router_module",
 ]
