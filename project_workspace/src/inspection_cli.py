@@ -47,10 +47,14 @@ if str(_project_root) not in sys.path:
 class CLIExitCode(enum.IntEnum):
     """CLI exit codes mapping to systemd service Result.
     IFC-INSP-003-01: run() returns CLIExitCode.
+
+    SUCCESS and PARTIAL both map to 0 — the inspection completed successfully
+    regardless of whether anomalies were found.  Only system errors (DB failure,
+    all devices unreachable) return non-zero to avoid triggering Restart=on-failure.
     """
-    SUCCESS = 0   # All devices normal
-    PARTIAL = 1   # Anomalies found (normal, not an error)
-    FAILURE = 2   # System error (DB unreadable, all devices unreachable)
+    SUCCESS = 0   # All devices normal, or no devices
+    PARTIAL = 0   # Anomalies found — normal operational result
+    FAILURE = 1   # System error (DB unreadable, all devices unreachable)
 
 
 # ── Constants ────────────────────────────────────────────────────
@@ -120,6 +124,20 @@ class InspectionCLI:
 
         if not devices:
             logger.warning("No devices configured for inspection")
+            completed_at = datetime.now(timezone.utc)
+            try:
+                self._persist_record(
+                    trigger_mode="SCHEDULED",
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    total_devices=0,
+                    anomaly_count=0,
+                    status="SUCCESS",
+                    details={"devices": {}},
+                )
+                logger.info("InspectionRecord persisted: 0 devices, status=SUCCESS")
+            except Exception as e:
+                logger.error(f"Failed to persist empty-device InspectionRecord: {e}")
             self._close_db()
             return CLIExitCode.SUCCESS
 
