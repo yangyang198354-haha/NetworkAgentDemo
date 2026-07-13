@@ -14,6 +14,7 @@ from .inspection_repository import InspectionRepository
 from .knowledge_repository import KnowledgeRepository
 from .config_repository import ConfigRepository
 from .audit_log_repository import AuditLogRepository
+from .llm_call_repository import LLMCallLogRepository
 
 __all__ = [
     "AlertRepository",
@@ -23,4 +24,5 @@ __all__ = [
     "KnowledgeRepository",
     "ConfigRepository",
     "AuditLogRepository",
+    "LLMCallLogRepository",
 ]

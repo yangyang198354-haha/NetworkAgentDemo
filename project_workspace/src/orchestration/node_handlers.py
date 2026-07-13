@@ -311,6 +311,18 @@ class NodeHandlers:
         combined_result = "\n\n".join(diag_outputs)
         logger.info(f"collect_diag: collected {len(commands)} diagnostic outputs ({len(combined_result)} chars)")
 
+        # ★ MOD-DP-006: Persist diag_result to DB ★
+        try:
+            from src.database.base import SessionLocal
+            from src.database.repositories.alert_repository import AlertRepository
+            db = SessionLocal()
+            try:
+                AlertRepository(db).update_workflow_state(alert_id, {"diag_result": combined_result})
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Failed to persist diag_result to DB: {e}")
+
         self._log_node(state, node, "END")
         return {
             "diag_commands": commands,
@@ -356,6 +368,21 @@ class NodeHandlers:
             rag_results = self.rag_service.search(diag_result, alert_type, top_k=5)
             for ref in rag_results:
                 knowledge_refs.append(ref.model_dump())
+
+        # ★ MOD-DP-006: Persist root_cause + knowledge_refs to DB ★
+        try:
+            from src.database.base import SessionLocal
+            from src.database.repositories.alert_repository import AlertRepository
+            db = SessionLocal()
+            try:
+                AlertRepository(db).update_workflow_state(alert_id, {
+                    "root_cause": root_cause,
+                    "knowledge_refs": knowledge_refs,
+                })
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Failed to persist root_cause to DB: {e}")
 
         self._log_node(state, node, "END")
         return {
@@ -442,6 +469,18 @@ class NodeHandlers:
             risk_hints=template_def.risk_hints,
             description=template_def.description,
         )
+
+        # ★ MOD-DP-006: Persist fix_plan to DB (covers all alerts, REQ-FUNC-001) ★
+        try:
+            from src.database.base import SessionLocal
+            from src.database.repositories.alert_repository import AlertRepository
+            db = SessionLocal()
+            try:
+                AlertRepository(db).update_workflow_state(alert_id, {"fix_plan": fix_plan.model_dump()})
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Failed to persist fix_plan to DB: {e}")
 
         self._log_node(state, node, "END")
         return {"fix_plan": fix_plan.model_dump()}
@@ -635,6 +674,18 @@ class NodeHandlers:
         all_success = all(r.get("success", False) for r in exec_log)
         logger.info(f"execute_fix: {len(exec_log)} commands, all_success={all_success}")
 
+        # ★ MOD-DP-006: Persist exec_log to DB ★
+        try:
+            from src.database.base import SessionLocal
+            from src.database.repositories.alert_repository import AlertRepository
+            db = SessionLocal()
+            try:
+                AlertRepository(db).update_workflow_state(alert_id, {"exec_log": exec_log})
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Failed to persist exec_log to DB: {e}")
+
         self._log_node(state, node, "END")
         return {"exec_log": exec_log}
 
@@ -696,6 +747,18 @@ class NodeHandlers:
         )
 
         logger.info(f"verify_result: passed={verify_passed}")
+
+        # ★ MOD-DP-006: Persist verify_result to DB ★
+        try:
+            from src.database.base import SessionLocal
+            from src.database.repositories.alert_repository import AlertRepository
+            db = SessionLocal()
+            try:
+                AlertRepository(db).update_workflow_state(alert_id, {"verify_result": verify.model_dump()})
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Failed to persist verify_result to DB: {e}")
 
         self._log_node(state, node, "END")
         return {"verify_result": verify.model_dump()}
@@ -760,6 +823,21 @@ class NodeHandlers:
                 db.close()
         except Exception as e:
             logger.warning(f"Failed to sync alert status to DB: {e}")
+
+        # ★ MOD-DP-006: Persist final_report + _completed marker to DB ★
+        try:
+            from src.database.base import SessionLocal
+            from src.database.repositories.alert_repository import AlertRepository
+            db = SessionLocal()
+            try:
+                AlertRepository(db).update_workflow_state(alert_id, {
+                    "final_report": final_report,
+                    "_completed": True,
+                })
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Failed to persist final_report to DB: {e}")
 
         self._log_node(state, node, "END")
         return {

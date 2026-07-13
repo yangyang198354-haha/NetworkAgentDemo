@@ -33,13 +33,15 @@ class LLMService:
       - 重试: 最多 3 次，指数退避 (1s, 2s, 4s)
     """
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, llm_log_repo=None):
         self._api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self._base_url = base_url or "https://api.deepseek.com/v1"
         self._model = "deepseek-chat"
         self._temperature = 0.1
         self._llm_call_log: dict[str, list[dict]] = {}  # alert_id → list of call records
         self._current_context: str | None = None
+        # MOD-DP-007: optional LLMCallLogRepository for DB dual-write
+        self._llm_log_repo = llm_log_repo
 
         if self._api_key:
             self._client = OpenAI(base_url=self._base_url, api_key=self._api_key)
@@ -144,7 +146,29 @@ class LLMService:
                 if self._client is None:
                     # Mock fallback（无 API key 时）
                     logger.info(f"[LLM Mock] {endpoint}: prompt_len={len(prompt)}")
-                    return self._mock_response(endpoint, prompt)
+                    output = self._mock_response(endpoint, prompt)
+                    elapsed = time.time() - start_time
+                    # ★ MOD-DP-007: DB dual-write for mock calls ★
+                    if self._llm_log_repo is not None and self._current_context:
+                        try:
+                            from src.database.base import SessionLocal
+                            db = SessionLocal()
+                            try:
+                                self._llm_log_repo.create_log(db, {
+                                    "alert_id_fk": self._current_context,
+                                    "endpoint": endpoint,
+                                    "elapsed_s": round(elapsed, 2),
+                                    "prompt_tokens": 0,
+                                    "completion_tokens": 0,
+                                    "prompt_summary": prompt[:3000] if prompt else "",
+                                    "response_summary": output[:3000] if output else "",
+                                    "is_mock": True,
+                                })
+                            finally:
+                                db.close()
+                        except Exception as e:
+                            logger.warning(f"Failed to persist LLM call log to DB (mock): {e}")
+                    return output
 
                 response = self._client.chat.completions.create(
                     model=self._model,
@@ -181,6 +205,27 @@ class LLMService:
                         "prompt": prompt[:3000],   # Truncate for storage
                         "response": output[:3000],
                     })
+
+                # ★ MOD-DP-007: DB dual-write for real LLM calls ★
+                if self._llm_log_repo is not None and self._current_context:
+                    try:
+                        from src.database.base import SessionLocal
+                        db = SessionLocal()
+                        try:
+                            self._llm_log_repo.create_log(db, {
+                                "alert_id_fk": self._current_context,
+                                "endpoint": endpoint,
+                                "elapsed_s": round(elapsed, 2),
+                                "prompt_tokens": usage.prompt_tokens if usage else 0,
+                                "completion_tokens": usage.completion_tokens if usage else 0,
+                                "prompt_summary": prompt[:3000] if prompt else "",
+                                "response_summary": output[:3000] if output else "",
+                                "is_mock": False,
+                            })
+                        finally:
+                            db.close()
+                    except Exception as e:
+                        logger.warning(f"Failed to persist LLM call log to DB: {e}")
 
                 return output
 

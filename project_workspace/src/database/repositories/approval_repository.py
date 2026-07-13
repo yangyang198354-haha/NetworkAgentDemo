@@ -71,6 +71,25 @@ class ApprovalRepository:
             self.db.refresh(approval)
         return approval
 
+    # ── IFC-DP-005-01: get_approvals_by_alert_id ──────────────
+
+    def get_approvals_by_alert_id(self, alert_id: str) -> list[Approval]:
+        """
+        Return all approval records for a given alert_id, ordered by created_at DESC.
+
+        Args:
+            alert_id: str — the alerts.alert_id value (maps to approvals.alert_id_fk).
+
+        Returns:
+            list[Approval] — empty list if no approval records found.
+        """
+        stmt = (
+            select(Approval)
+            .where(Approval.alert_id_fk == alert_id)
+            .order_by(desc(Approval.created_at))
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
     # ── list_approval_history ───────────────────────────────
 
     def list_approval_history(

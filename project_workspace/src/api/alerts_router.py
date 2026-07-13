@@ -73,55 +73,52 @@ async def get_alert_detail(alert_id: str, db: Session = Depends(get_db)):
 
     timeline = repo.get_alert_timeline(alert_id)
 
-    # Try to read fix_plan + approval from LangGraph checkpoint
+    # ★ MOD-DP-008: Read fix_plan and commands from workflow_state JSON column ★
     fix_plan = None
     commands = []
+    wf_state = alert.workflow_state
+    if wf_state:
+        fp = wf_state.get("fix_plan")
+        if fp and isinstance(fp, dict):
+            fix_plan = {
+                "template_id": fp.get("template_id", ""),
+                "description": fp.get("description", ""),
+                "params": fp.get("params", {}),
+            }
+            commands = fp.get("commands", [])
+
+    # ★ MOD-DP-008: Read approval from DB (ApprovalRepository) ★
     approval_info = None
     try:
-        import sys
-        main_module = sys.modules.get("src.main")
-        if main_module:
-            state = main_module.state_graph_engine.get_workflow_state(alert_id)
-            if state:
-                fp = state.get("fix_plan")
-                if fp and isinstance(fp, dict):
-                    fix_plan = {
-                        "template_id": fp.get("template_id", ""),
-                        "description": fp.get("description", ""),
-                        "params": fp.get("params", {}),
-                    }
-                    commands = fp.get("commands", [])
-                # Extract approval info from LangGraph state
-                approval_info = {
-                    "need_human_approval": state.get("need_human_approval", False),
-                    "approval_status": state.get("approval_status", "NOT_REQUIRED"),
-                    "risk_level": state.get("risk_level", "LOW"),
-                }
-    except Exception:
-        pass  # LangGraph state unavailable, return without fix_plan/approval
-
-    # Try to read memory timeline from NodeHandlers
-    memory_timeline = []
-    try:
-        if main_module:
-            memory_timeline = main_module.node_handlers.get_timeline(alert_id)
+        from src.database.repositories.approval_repository import ApprovalRepository
+        approval_repo = ApprovalRepository(db)
+        approvals = approval_repo.get_approvals_by_alert_id(alert_id)
+        if approvals:
+            latest = approvals[0]  # Already sorted by created_at DESC
+            approval_info = {
+                "need_human_approval": True,
+                "approval_status": latest.decision or "NOT_REQUIRED",
+                "risk_level": latest.risk_level or "LOW",
+                "decision": latest.decision,
+                "decided_by": latest.decided_by,
+                "decided_at": latest.decided_at.isoformat() if latest.decided_at else None,
+                "note": latest.note or "",
+            }
     except Exception:
         pass
 
-    # Try to read LLM call records
+    # ★ MOD-DP-008: Read LLM call logs from DB (LLMCallLogRepository) ★
     llm_calls = []
     try:
-        if main_module:
-            llm_calls = main_module.llm_service.get_llm_logs(alert_id)
+        from src.database.repositories.llm_call_repository import LLMCallLogRepository
+        llm_repo = LLMCallLogRepository(db)
+        llm_calls = llm_repo.get_logs_by_alert_id_as_dicts(alert_id)
     except Exception:
         pass
-
-    # Use memory timeline if available (from current process), fallback to DB
-    effective_timeline = memory_timeline if memory_timeline else timeline
 
     return {
         "alert": alert,
-        "timeline": effective_timeline,
+        "timeline": timeline,
         "fix_plan": fix_plan,
         "commands": commands,
         "llm_calls": llm_calls,

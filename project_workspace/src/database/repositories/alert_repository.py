@@ -115,6 +115,50 @@ class AlertRepository:
             self.db.refresh(alert)
         return alert
 
+    # ── list_by_inspection_record ───────────────────────────
+
+    def list_by_inspection_record(
+        self,
+        record_id: int,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict:
+        """
+        Query alerts linked to a specific InspectionRecord via
+        device_info JSON field's inspection_record_id key.
+        Uses SQLite json_extract() for JSON field querying (ADR-004).
+        """
+        from sqlalchemy import text
+
+        offset = (page - 1) * page_size
+
+        count_sql = text(
+            "SELECT COUNT(*) FROM alerts "
+            "WHERE json_extract(device_info, '$.inspection_record_id') = :rid"
+        )
+        total = self.db.execute(count_sql, {"rid": record_id}).scalar() or 0
+
+        data_sql = text(
+            "SELECT * FROM alerts "
+            "WHERE json_extract(device_info, '$.inspection_record_id') = :rid "
+            "ORDER BY created_at DESC "
+            "LIMIT :limit OFFSET :offset"
+        )
+        rows = self.db.execute(
+            data_sql,
+            {"rid": record_id, "limit": page_size, "offset": offset},
+        ).fetchall()
+
+        items = [dict(row._mapping) for row in rows]
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": max(1, (total + page_size - 1) // page_size),
+        }
+
     # ── append_timeline_entry ───────────────────────────────
 
     def append_timeline_entry(self, alert_id: str, entry_data: dict) -> AlertTimeline:
@@ -127,3 +171,75 @@ class AlertRepository:
         self.db.commit()
         self.db.refresh(entry)
         return entry
+
+    # ── IFC-DP-004-01: update_workflow_state ──────────────────
+
+    def update_workflow_state(self, alert_id: str, partial_update: dict) -> Alert | None:
+        """
+        Incrementally update the workflow_state JSON column via deep merge.
+
+        Reads the current workflow_state, deep-merges partial_update into it,
+        and writes back. If current value is NULL, partial_update becomes the
+        initial value.
+
+        Merge strategy:
+          - Nested dicts: recursive deep merge
+          - Lists: direct replacement (not append)
+          - Scalars (str/int/bool/float): direct replacement
+
+        Args:
+            alert_id: str — the alert UUID to update.
+            partial_update: dict — key-value pairs to merge.
+
+        Returns:
+            Updated Alert ORM object, or None if alert_id not found.
+        """
+        alert = self.get_alert_by_id(alert_id)
+        if alert is None:
+            return None
+        current = alert.workflow_state or {}
+        merged = self._deep_merge(current, partial_update)
+        alert.workflow_state = merged
+        alert.updated_at = datetime.now(timezone.utc)
+        self.db.commit()
+        self.db.refresh(alert)
+        return alert
+
+    # ── IFC-DP-004-02: get_workflow_state ─────────────────────
+
+    def get_workflow_state(self, alert_id: str) -> dict | None:
+        """
+        Return the workflow_state JSON column value for a given alert.
+
+        Args:
+            alert_id: str — the alert UUID.
+
+        Returns:
+            dict — the full workflow_state JSON object;
+            None — if alert does not exist or column value is NULL.
+        """
+        alert = self.get_alert_by_id(alert_id)
+        if alert is None:
+            return None
+        return alert.workflow_state
+
+    # ── _deep_merge (static helper) ───────────────────────────
+
+    @staticmethod
+    def _deep_merge(base: dict, update: dict) -> dict:
+        """
+        Deep merge ``update`` into ``base``.
+
+        - If both values are dicts at the same key, recursively merge.
+        - Otherwise, the update value replaces the base value (lists are replaced,
+          not appended).
+
+        Returns a new dict; does not mutate the input ``base``.
+        """
+        result = dict(base)
+        for key, value in update.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = AlertRepository._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result

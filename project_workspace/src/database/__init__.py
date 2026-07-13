@@ -30,6 +30,9 @@ from .kb_models import KnowledgeDocument, CommandTemplate
 # Config
 from .config_models import SystemConfig, AuditLog
 
+# LLM Call Log (MOD-DP-002)
+from .llm_call_models import LLMCallLog
+
 __all__ = [
     "Base", "TimestampMixin",
     "create_engine", "get_session_factory", "init_db", "get_db", "SessionLocal",
@@ -37,4 +40,5 @@ __all__ = [
     "Device", "DeviceCredential", "InspectionRecord",
     "KnowledgeDocument", "CommandTemplate",
     "SystemConfig", "AuditLog",
+    "LLMCallLog",
 ]

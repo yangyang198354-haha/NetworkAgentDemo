@@ -47,6 +47,11 @@ class Alert(Base, TimestampMixin):
         String(15), nullable=False, index=True, default="PROCESSING",
         comment="PROCESSING / CLOSED / FAILED / REJECTED"
     )
+    # ★ MOD-DP-001: 新增 workflow_state JSON 列 ★
+    workflow_state: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSON, nullable=True, default=None,
+        comment="工作流状态JSON: {fix_plan,root_cause,diag_result,exec_log,verify_result,final_report,_completed}"
+    )
 
     # ── Relationships ──
     timeline: Mapped[list["AlertTimeline"]] = relationship(
