@@ -322,6 +322,16 @@ class SimulatorLifecycleManager:
         with self._lock:
             return self._instances.get(device_id)
 
+    def find_by_device_name(self, device_name: str) -> Optional[dict]:
+        """Find a running simulator by device name. Returns info dict or None."""
+        with self._lock:
+            for info in self._instances.values():
+                if info.get("device_name") == device_name:
+                    process = info["process"]
+                    if process.poll() is None:
+                        return dict(info)
+            return None
+
     # ── State proxy methods (via management API) ──────────
 
     def get_ports(self, device_id: int) -> Optional[dict]:

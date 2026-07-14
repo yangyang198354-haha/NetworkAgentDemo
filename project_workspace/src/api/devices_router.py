@@ -377,7 +377,8 @@ async def device_heartbeat(device_id: int, db: Session = Depends(get_db)):
     live_status = lm.get_status(device_id)
 
     if live_status.get("running") and live_status.get("ssh_port"):
-        ssh_host = live_status.get("ssh_host", "127.0.0.1")
+        # Simulator runs on same VPS — always use 127.0.0.1
+        ssh_host = "127.0.0.1"
         ssh_port = live_status["ssh_port"]
         is_online, response_ms = lm.heartbeat(ssh_host, ssh_port)
 

@@ -107,6 +107,34 @@ class NodeHandlers:
             return device_info.get("device_type", "MOCK")
         return getattr(device_info, "device_type", "MOCK") or "MOCK"
 
+    def _resolve_simulator_connection(self, state: NetworkAgentState) -> tuple[str, int] | None:
+        """
+        For SIMULATOR devices: resolve the actual SSH host/port from LifecycleManager.
+        The simulator runs on the VPS (localhost), not on the device's configured IP.
+        Returns (host, port) or None if simulator not running / not a simulator device.
+        """
+        device_type = self._get_device_type(state)
+        if device_type != "SIMULATOR":
+            return None
+
+        try:
+            import sys
+            main_module = sys.modules.get("src.main")
+            lm = getattr(main_module, "simulator_lifecycle_manager", None)
+            if lm is None:
+                return None
+
+            device_info = state.get("device_info", {})
+            device_name = (device_info.get("device_name", "") if isinstance(device_info, dict)
+                          else getattr(device_info, "device_name", ""))
+
+            info = lm.find_by_device_name(device_name) if device_name else None
+            if info:
+                return ("127.0.0.1", info["ssh_port"])
+        except Exception:
+            pass
+        return None
+
     def _get_diag_tool_for_device(self, state: NetworkAgentState):
         """Return the appropriate diag tool based on device_type in state."""
         device_type = self._get_device_type(state)
@@ -324,6 +352,12 @@ class NodeHandlers:
         diag_outputs: list[str] = []
 
         auth = self._extract_auth(device_info)
+
+        # Resolve simulator to localhost (REQ-FUNC-119)
+        sim_conn = self._resolve_simulator_connection(state)
+        if sim_conn:
+            device_ip = sim_conn[0]
+            auth.port = sim_conn[1]
 
         for command in commands:
             # 对 PORT_DOWN 类型，动态生成接口级命令
@@ -651,6 +685,11 @@ class NodeHandlers:
         device_ip = device_info.get("device_ip", "0.0.0.0")
         auth = self._extract_auth(device_info)
 
+        sim_conn = self._resolve_simulator_connection(state)
+        if sim_conn:
+            device_ip = sim_conn[0]
+            auth.port = sim_conn[1]
+
         if self.backup_tool:
             backup_tool = self._get_backup_tool_for_device(state)
             result = backup_tool._run(device_ip, auth, operation="backup")
@@ -686,6 +725,11 @@ class NodeHandlers:
         device_info = state.get("device_info", {})
         device_ip = device_info.get("device_ip", "0.0.0.0")
         auth = self._extract_auth(device_info)
+
+        sim_conn = self._resolve_simulator_connection(state)
+        if sim_conn:
+            device_ip = sim_conn[0]
+            auth.port = sim_conn[1]
 
         exec_log: list[dict[str, Any]] = []
         device_type = self._get_device_type(state)
@@ -741,6 +785,11 @@ class NodeHandlers:
         commands = DIAG_COMMAND_MAP.get(alert_type, ["show interface status"])
         after_outputs: list[str] = []
         auth = self._extract_auth(device_info)
+
+        sim_conn = self._resolve_simulator_connection(state)
+        if sim_conn:
+            device_ip = sim_conn[0]
+            auth.port = sim_conn[1]
 
         for command in commands[:1]:  # 验证仅跑第一条命令（快速检查）
             actual_command = command
