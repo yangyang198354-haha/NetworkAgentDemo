@@ -252,9 +252,24 @@ class TpLinkBackupTool(AbstractBackupTool):
 # Factory
 # ────────────────────────────────────────────────────
 
-def create_backup_tool(use_mock: bool = True) -> AbstractBackupTool:
-    """工厂函数：根据配置创建 Mock 或 TP-Link 实现。"""
-    if use_mock:
-        return MockBackupTool()
-    else:
+def create_backup_tool(
+    use_mock: bool = True,
+    device_type: str = "MOCK",
+) -> AbstractBackupTool:
+    """
+    工厂函数：根据 device_type 创建对应的备份工具实现。
+
+    Args:
+        use_mock: [DEPRECATED] 保留向后兼容，优先使用 device_type
+        device_type: "MOCK" → MockBackupTool | "SIMULATOR" → SimulatorBackupTool
+
+    REQ-FUNC-111: 工具工厂策略扩展 — 根据设备类型分发。
+    """
+    if device_type == "SIMULATOR":
+        from src.tools.simulator_backup_tool import SimulatorBackupTool
+        return SimulatorBackupTool()
+
+    if not use_mock:
         return TpLinkBackupTool()
+
+    return MockBackupTool()

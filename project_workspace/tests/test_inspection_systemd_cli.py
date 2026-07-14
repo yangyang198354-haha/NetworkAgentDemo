@@ -29,10 +29,10 @@ class TestCLIExitCode:
     """TC-UNIT-070: CLIExitCode enumeration."""
 
     def test_enum_values(self):
-        """TC-UNIT-070: CLIExitCode values are 0/1/2."""
+        """TC-UNIT-070: CLIExitCode values — SUCCESS/PARTIAL both 0 (anomalies are normal results)."""
         assert CLIExitCode.SUCCESS.value == 0
-        assert CLIExitCode.PARTIAL.value == 1
-        assert CLIExitCode.FAILURE.value == 2
+        assert CLIExitCode.PARTIAL.value == 0  # PARTIAL = SUCCESS — anomalies are normal operational results
+        assert CLIExitCode.FAILURE.value == 1
 
     def test_enum_is_int(self):
         """CLIExitCode is an IntEnum."""

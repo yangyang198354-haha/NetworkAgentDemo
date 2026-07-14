@@ -76,6 +76,10 @@ const routes: Array<RouteRecordRaw> = [
       },
       {
         path: 'inspection',
+        redirect: '/inspection/config',  // [NEW] v0.2.0-unified: redirect old /inspection to /inspection/config
+      },
+      {
+        path: 'inspection/config',
         name: 'InspectionConfig',
         component: () => import('@/views/inspection/InspectionConfigView.vue'),
         meta: { requiresAuth: true, title: '巡检配置' },
@@ -85,6 +89,12 @@ const routes: Array<RouteRecordRaw> = [
         name: 'InspectionHistory',
         component: () => import('@/views/inspection/InspectionHistoryView.vue'),
         meta: { requiresAuth: true, title: '巡检历史' },
+      },
+      {
+        path: 'inspection/manual',        // [NEW] v0.2.0-unified: manual inspection trigger page
+        name: 'InspectionManual',
+        component: () => import('@/views/inspection/ManualInspectionView.vue'),
+        meta: { requiresAuth: true, title: '手动巡检' },
       },
       {
         path: 'knowledge/documents',

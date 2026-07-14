@@ -24,8 +24,14 @@ class AlertSeverity(str, Enum):
 
 
 class AlertSource(str, Enum):
-    """告警来源"""
-    ZABBIX = "ZABBIX"
+    """告警来源
+
+    Values:
+        WEBHOOK:    外部 webhook 推送（Zabbix/Prometheus/Grafana/etc.）
+        MOCK:       模拟告警（POST /api/alerts/simulate）
+        INSPECTION: 巡检发现（定时/手动）
+    """
+    WEBHOOK = "WEBHOOK"
     MOCK = "MOCK"
     INSPECTION = "INSPECTION"
 
@@ -69,3 +75,21 @@ class DocType(str, Enum):
     CASE = "case"
     PLAN = "plan"
     TEMPLATE = "template"
+
+
+class DeviceType(str, Enum):
+    """设备类型 — 区分 Mock 设备和模拟器设备 (REQ-FUNC-101)
+
+    Values:
+        MOCK:      Mock 设备，返回预设值的假设备，用于软件测试
+        SIMULATOR: 交换机模拟器，具备可交互 SSH 服务
+    """
+    MOCK = "MOCK"
+    SIMULATOR = "SIMULATOR"
+
+
+class SimulatorStatus(str, Enum):
+    """模拟器 SSH 服务运行状态 (REQ-FUNC-121)"""
+    RUNNING = "RUNNING"
+    STOPPED = "STOPPED"
+    ERROR = "ERROR"

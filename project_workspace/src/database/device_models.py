@@ -33,6 +33,18 @@ class Device(Base, TimestampMixin):
     group_name: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, comment="所属分组"
     )
+    device_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="MOCK",
+        comment="设备类型: MOCK / SIMULATOR"
+    )
+    simulator_port: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None,
+        comment="模拟器 SSH 监听端口 (仅 SIMULATOR 有效)"
+    )
+    simulator_status: Mapped[Optional[str]] = mapped_column(
+        String(15), nullable=True, default="STOPPED",
+        comment="模拟器状态: RUNNING / STOPPED / ERROR"
+    )
     status: Mapped[Optional[str]] = mapped_column(
         String(15), nullable=True, default="UNKNOWN",
         comment="ONLINE / OFFLINE / UNKNOWN"

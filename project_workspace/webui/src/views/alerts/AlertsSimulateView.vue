@@ -26,8 +26,6 @@
         <el-form-item label="设备名称" prop="device_name">
           <el-select v-model="form.device_name" style="width:100%" filterable allow-create>
             <el-option v-for="d in devices" :key="d.device_name" :label="d.device_name" :value="d.device_name" />
-            <el-option label="Core-SW-01" value="Core-SW-01" />
-            <el-option label="Access-SW-02" value="Access-SW-02" />
           </el-select>
         </el-form-item>
 
@@ -111,7 +109,7 @@ async function handleSend() {
         alert_cpu: form.cpu_percent || undefined,
         event_id: `WEB-${Date.now()}`,
       })
-      result.value = `Webhook 已发送！alert_id: ${resp.alert_id}, source: ZABBIX`
+      result.value = `Webhook 已发送！alert_id: ${resp.alert_id}, source: WEBHOOK`
     } else {
       // POST /api/alerts/simulate
       const resp: any = await alertsStore.simulateAlert({

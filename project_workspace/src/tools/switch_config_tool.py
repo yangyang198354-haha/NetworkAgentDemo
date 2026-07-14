@@ -150,9 +150,24 @@ class TpLinkSwitchConfigTool(AbstractSwitchConfigTool):
 # Factory
 # ────────────────────────────────────────────────────
 
-def create_switch_config_tool(use_mock: bool = True) -> AbstractSwitchConfigTool:
-    """工厂函数：根据配置创建 Mock 或 TP-Link 实现。"""
-    if use_mock:
-        return MockSwitchConfigTool()
-    else:
+def create_switch_config_tool(
+    use_mock: bool = True,
+    device_type: str = "MOCK",
+) -> AbstractSwitchConfigTool:
+    """
+    工厂函数：根据 device_type 创建对应的配置工具实现。
+
+    Args:
+        use_mock: [DEPRECATED] 保留向后兼容，优先使用 device_type
+        device_type: "MOCK" → MockSwitchConfigTool | "SIMULATOR" → SimulatorConfigTool
+
+    REQ-FUNC-111: 工具工厂策略扩展 — 根据设备类型分发。
+    """
+    if device_type == "SIMULATOR":
+        from src.tools.simulator_config_tool import SimulatorConfigTool
+        return SimulatorConfigTool()
+
+    if not use_mock:
         return TpLinkSwitchConfigTool()
+
+    return MockSwitchConfigTool()

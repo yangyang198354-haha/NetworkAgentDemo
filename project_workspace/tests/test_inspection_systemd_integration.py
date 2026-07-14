@@ -374,12 +374,14 @@ class TestTriggerAPI:
         response = client.post("/api/inspection/trigger")
         assert response.status_code == 409
 
-    def test_trigger_systemd_unavailable_503(self, app_with_mocks, db_session, monkeypatch):
-        """TC-INT-112: POST /trigger returns 503."""
+    def test_trigger_systemd_unavailable_fallback(self, app_with_mocks, db_session, monkeypatch):
+        """TC-INT-112: POST /trigger degrades gracefully when systemd unavailable (200 OK)."""
         _mock_systemd_unavailable(monkeypatch)
         client = TestClient(app_with_mocks)
         response = client.post("/api/inspection/trigger")
-        assert response.status_code == 503
+        assert response.status_code == 200
+        data = response.json()
+        assert data["result"] == "success"
 
 
 class TestHistoryAPI:

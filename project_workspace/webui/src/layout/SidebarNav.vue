@@ -46,10 +46,24 @@
       <span>设备管理</span>
     </el-menu-item>
 
-    <el-menu-item index="/inspection">
-      <el-icon><Refresh /></el-icon>
-      <span>巡检配置</span>
-    </el-menu-item>
+    <el-sub-menu index="inspection-sub">
+      <template #title>
+        <el-icon><Refresh /></el-icon>
+        <span>AI 巡检</span>
+      </template>
+      <el-menu-item index="/inspection/config">
+        <el-icon><Setting /></el-icon>
+        <span>巡检配置</span>
+      </el-menu-item>
+      <el-menu-item index="/inspection/history">
+        <el-icon><Document /></el-icon>
+        <span>巡检记录</span>
+      </el-menu-item>
+      <el-menu-item index="/inspection/manual">
+        <el-icon><VideoPlay /></el-icon>
+        <span>手动巡检</span>
+      </el-menu-item>
+    </el-sub-menu>
 
     <el-sub-menu index="knowledge-sub">
       <template #title>

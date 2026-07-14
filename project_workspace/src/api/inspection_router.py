@@ -14,6 +14,9 @@ v0.2.0 enhancements:
   - Retains v0.1.0 backward compatibility for all endpoint URL paths
 """
 
+import subprocess
+import sys
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,6 +26,7 @@ from loguru import logger
 
 from src.api.dependencies import get_db
 from src.database.repositories.inspection_repository import InspectionRepository
+from src.database.repositories.alert_repository import AlertRepository
 
 inspection_router = APIRouter()
 
@@ -53,6 +57,25 @@ class InspectionActionResponse(BaseModel):
     message: str
     detail: Optional[str] = None
     service_state: Optional[dict] = None
+
+
+# ── v0.2.0-unified: Trigger Workflows models (ADR-002) ────────────
+
+class TriggerWorkflowsRequest(BaseModel):
+    """Batch workflow trigger request from InspectionCLI."""
+    alert_ids: list[str] = Field(
+        ..., min_length=1, max_length=50,
+        description="Alert UUIDs to trigger workflows for"
+    )
+
+
+class TriggerWorkflowsResponse(BaseModel):
+    """Batch workflow trigger response."""
+    result: str                         # "accepted"
+    record_id: int
+    triggered_count: int
+    skipped_count: int
+    errors: list[str] = []
 
 
 # ── Lazy-loader for systemd modules (avoids import errors on non-Linux) ─
@@ -154,22 +177,12 @@ async def update_inspection_config(
 async def trigger_inspection(db: Session = Depends(get_db)):
     """
     Manually trigger an inspection run.
-    v0.2.0: Uses systemctl start networkagent-inspection.service (PM Q-INSP-003).
-            Returns 503 if systemd is not available.
+    v0.2.1: Uses subprocess.Popen to call CLI directly with --trigger manual.
+            Retains 409 duplicate trigger check via systemd (best-effort).
     """
-    executor = _get_systemctl_executor()
-
-    # Check systemd availability
-    avail = executor.check_systemd_available()
-    if not avail.available:
-        raise HTTPException(
-            status_code=503,
-            detail="请先配置巡检服务：当前环境不支持 systemd，无法触发巡检。"
-                   "请确保系统安装了 systemd 并正确配置。"
-        )
-
-    # Check if service is already running
+    # Check if an inspection is already running (systemd-based, best-effort)
     try:
+        executor = _get_systemctl_executor()
         service_status = executor.get_service_status()
         if service_status.sub_state == "running":
             raise HTTPException(
@@ -179,22 +192,28 @@ async def trigger_inspection(db: Session = Depends(get_db)):
     except HTTPException:
         raise  # Re-raise HTTP exceptions
     except Exception:
-        # If we can't check status, proceed anyway
+        # If we can't check status (e.g., systemd unavailable), proceed anyway
         pass
 
-    # Trigger via systemctl start
-    result = executor.start_service()
-    if not result.success:
+    # Trigger via subprocess — direct CLI call, non-blocking
+    try:
+        project_root = Path(__file__).resolve().parent.parent.parent
+        subprocess.Popen(
+            [sys.executable, '-m', 'src.inspection_cli', 'run', '--trigger', 'manual'],
+            cwd=str(project_root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"巡检触发失败: {result.message}"
+            detail=f"巡检触发失败: {str(e)}"
         )
 
     return {
         "result": "success",
         "message": "巡检已触发",
         "trigger_mode": "MANUAL",
-        "detail": result.detail,
     }
 
 
@@ -425,4 +444,143 @@ async def disable_inspection_timer():
         action="disable",
         message=result.message,
         detail=result.detail,
+    )
+
+
+# ── GET /api/inspection/journal [NEW: v0.2.1] ──────────
+#   REQ-FUNC-001: journalctl log query endpoint (JWT via global api_router)
+#   REQ-FUNC-005: Zero-changes to this portion.
+
+@inspection_router.get("/journal")
+async def get_inspection_journal(
+    lines: int = Query(default=100, ge=10, le=500),
+):
+    """
+    Query systemd journal for networkagent-inspection.service logs.
+
+    Returns recent N lines of inspection service logs from journalctl.
+    JWT-protected via the global api_router dependency (Depends(get_current_user)).
+
+    Args:
+        lines: Number of log lines to return (10-500, default 100).
+
+    Returns:
+        {"lines": ["line1", "line2", ...]}
+
+    Errors:
+        503 — journalctl timeout or not available
+        422 — lines out of range (handled by FastAPI)
+    """
+    try:
+        result = subprocess.run(
+            ['journalctl', '-u', 'networkagent-inspection.service', '--no-pager',
+             '-n', str(lines)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return {"lines": result.stdout.splitlines()}
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=503,
+            detail="日志查询超时，请稍后重试"
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="当前环境不支持 journalctl，日志查询不可用"
+        )
+
+
+# ── POST /api/inspection/{record_id}/trigger-workflows [ADR-002] ──
+# NOTE: This handler is registered directly in main.py (not via api_router)
+# because it must be accessible from localhost without JWT auth.
+# The api_router applies Depends(get_current_user) globally.
+
+async def trigger_inspection_workflows_handler(
+    record_id: int,
+    body: TriggerWorkflowsRequest,
+    db: Session,
+):
+    """
+    [NEW v0.2.0-unified] Batch trigger LangGraph workflows for
+    inspection-created alerts.
+
+    Called by InspectionCLI after persisting alerts and inspection record.
+    Each alert_id spawns a daemon thread via existing StateGraphEngine.
+    Idempotent: skips alerts already in non-PROCESSING status.
+
+    Registered without JWT (internal localhost endpoint, ADR-002).
+    """
+    import threading
+    import sys
+
+    repo = InspectionRepository(db)
+    record = repo.get_by_id(record_id)
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"InspectionRecord #{record_id} not found",
+        )
+
+    main_module = sys.modules.get("src.main")
+    if main_module is None:
+        raise HTTPException(
+            status_code=503,
+            detail="System not fully initialized",
+        )
+
+    state_graph_engine = main_module.state_graph_engine
+    alert_repo = AlertRepository(db)
+
+    triggered = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for alert_id in body.alert_ids:
+        try:
+            alert = alert_repo.get_alert_by_id(alert_id)
+            if not alert:
+                errors.append(f"Alert {alert_id}: not found")
+                skipped += 1
+                continue
+
+            if alert.status != "PROCESSING":
+                skipped += 1
+                continue
+
+            from src.models.alert import Alert as DomainAlert, DeviceInfo
+            from src.models.enums import AlertType, AlertSeverity, AlertSource
+
+            domain_alert = DomainAlert(
+                alert_id=alert.alert_id,
+                alert_type=AlertType(alert.alert_type),
+                alert_severity=AlertSeverity(alert.severity) if alert.severity else AlertSeverity.WARNING,
+                alert_content=alert.content,
+                device_info=DeviceInfo(**alert.device_info) if alert.device_info else DeviceInfo(
+                    device_name="unknown", device_ip="unknown"
+                ),
+                source=AlertSource(alert.source) if alert.source else AlertSource.INSPECTION,
+            )
+
+            def _run_workflow(a=domain_alert):
+                try:
+                    state_graph_engine.run_workflow(a)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_run_workflow, daemon=True).start()
+            triggered += 1
+            logger.info(f"Workflow triggered for alert {alert_id}")
+
+        except Exception as e:
+            errors.append(f"Alert {alert_id}: {str(e)}")
+            skipped += 1
+
+    return TriggerWorkflowsResponse(
+        result="accepted",
+        record_id=record_id,
+        triggered_count=triggered,
+        skipped_count=skipped,
+        errors=errors,
     )

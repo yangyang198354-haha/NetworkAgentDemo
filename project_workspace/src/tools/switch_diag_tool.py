@@ -281,9 +281,24 @@ class TpLinkSwitchDiagTool(AbstractSwitchDiagTool):
 # Factory
 # ────────────────────────────────────────────────────
 
-def create_switch_diag_tool(use_mock: bool = True) -> AbstractSwitchDiagTool:
-    """工厂函数：根据配置创建 Mock 或 TP-Link 实现。"""
-    if use_mock:
-        return MockSwitchDiagTool()
-    else:
+def create_switch_diag_tool(
+    use_mock: bool = True,
+    device_type: str = "MOCK",
+) -> AbstractSwitchDiagTool:
+    """
+    工厂函数：根据 device_type 创建对应的诊断工具实现。
+
+    Args:
+        use_mock: [DEPRECATED] 保留向后兼容，优先使用 device_type
+        device_type: "MOCK" → MockSwitchDiagTool | "SIMULATOR" → SimulatorDiagTool
+
+    REQ-FUNC-111: 工具工厂策略扩展 — 根据设备类型分发。
+    """
+    if device_type == "SIMULATOR":
+        from src.tools.simulator_diag_tool import SimulatorDiagTool
+        return SimulatorDiagTool()
+
+    if not use_mock:
         return TpLinkSwitchDiagTool()
+
+    return MockSwitchDiagTool()

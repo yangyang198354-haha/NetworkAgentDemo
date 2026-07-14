@@ -1,5 +1,6 @@
 /**
- * MOD-WEB-F07: DevicesStore — Device CRUD and credential management.
+ * MOD-WEB-F07: DevicesStore — Device CRUD, credential management, and simulator operations.
+ * @extended REQ-FUNC-113, REQ-FUNC-114, REQ-FUNC-115, REQ-FUNC-121
  */
 
 import { defineStore } from 'pinia'
@@ -49,5 +50,54 @@ export const useDevicesStore = defineStore('devices', () => {
     return resp
   }
 
-  return { deviceList, currentDevice, loading, fetchDevices, createDevice, updateDevice, deleteDevice, configureCredentials, fetchDiagnostics }
+  // ── Simulator operations (REQ-FUNC-113, REQ-FUNC-114, REQ-FUNC-115, REQ-FUNC-121) ──
+
+  async function startSimulator(deviceId: number, data?: Record<string, any>) {
+    const resp: any = await client.post(`/api/devices/${deviceId}/simulator/start`, data || {})
+    await fetchDevices()
+    return resp
+  }
+
+  async function stopSimulator(deviceId: number) {
+    const resp: any = await client.post(`/api/devices/${deviceId}/simulator/stop`)
+    await fetchDevices()
+    return resp
+  }
+
+  async function getSimulatorStatus(deviceId: number) {
+    const resp: any = await client.get(`/api/devices/${deviceId}/simulator/status`)
+    return resp
+  }
+
+  async function heartbeat(deviceId: number) {
+    const resp: any = await client.post(`/api/devices/${deviceId}/heartbeat`)
+    await fetchDevices()
+    return resp
+  }
+
+  async function getDevicePorts(deviceId: number) {
+    const resp: any = await client.get(`/api/devices/${deviceId}/ports`)
+    return resp
+  }
+
+  async function configurePort(deviceId: number, portName: string, action: string, value?: string) {
+    const resp: any = await client.post(`/api/devices/${deviceId}/ports/${portName}/config`, {
+      action,
+      value: value || null,
+    })
+    return resp
+  }
+
+  async function getDeviceSystem(deviceId: number) {
+    const resp: any = await client.get(`/api/devices/${deviceId}/system`)
+    return resp
+  }
+
+  return {
+    deviceList, currentDevice, loading,
+    fetchDevices, createDevice, updateDevice, deleteDevice,
+    configureCredentials, fetchDiagnostics,
+    startSimulator, stopSimulator, getSimulatorStatus,
+    heartbeat, getDevicePorts, configurePort, getDeviceSystem,
+  }
 })

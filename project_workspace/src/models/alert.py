@@ -30,6 +30,7 @@ class DeviceInfo(BaseModel):
     interface_name: Optional[str] = None
     mac_address: Optional[str] = None
     cpu_percent: Optional[float] = None
+    device_type: Optional[str] = "MOCK"  # REQ-FUNC-119: MOCK | SIMULATOR
 
 
 class AlertPayload(BaseModel):

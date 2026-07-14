@@ -98,6 +98,39 @@ class NodeHandlers:
         """Return timeline entries for an alert."""
         return self._timeline_store.get(alert_id, [])
 
+    # ── 工具动态选择 (REQ-FUNC-119) ──────────────────────────
+
+    def _get_device_type(self, state: NetworkAgentState) -> str:
+        """Extract device_type from workflow state. Defaults to MOCK."""
+        device_info = state.get("device_info", {})
+        if isinstance(device_info, dict):
+            return device_info.get("device_type", "MOCK")
+        return getattr(device_info, "device_type", "MOCK") or "MOCK"
+
+    def _get_diag_tool_for_device(self, state: NetworkAgentState):
+        """Return the appropriate diag tool based on device_type in state."""
+        device_type = self._get_device_type(state)
+        if device_type == "SIMULATOR":
+            from src.tools.simulator_diag_tool import SimulatorDiagTool
+            return SimulatorDiagTool()
+        return self.switch_diag_tool
+
+    def _get_config_tool_for_device(self, state: NetworkAgentState):
+        """Return the appropriate config tool based on device_type in state."""
+        device_type = self._get_device_type(state)
+        if device_type == "SIMULATOR":
+            from src.tools.simulator_config_tool import SimulatorConfigTool
+            return SimulatorConfigTool()
+        return self.switch_config_tool
+
+    def _get_backup_tool_for_device(self, state: NetworkAgentState):
+        """Return the appropriate backup tool based on device_type in state."""
+        device_type = self._get_device_type(state)
+        if device_type == "SIMULATOR":
+            from src.tools.simulator_backup_tool import SimulatorBackupTool
+            return SimulatorBackupTool()
+        return self.backup_tool
+
     # ── 内部辅助: 日志记录 + 时间线 ──────────────────────────
 
     def _log_node(self, state: NetworkAgentState, node_name: str, phase: str, duration_ms: int = 0) -> None:
@@ -299,8 +332,9 @@ class NodeHandlers:
                 iface = device_info.get("interface_name", "Gi0/1")
                 actual_command = f"show interface {iface}"
 
-            if self.switch_diag_tool:
-                result = self.switch_diag_tool._run(device_ip, actual_command, auth)
+            diag_tool = self._get_diag_tool_for_device(state)
+            if diag_tool:
+                result = diag_tool._run(device_ip, actual_command, auth)
                 if result.success:
                     diag_outputs.append(f"--- {actual_command} ---\n{result.output}")
                 else:
@@ -618,7 +652,8 @@ class NodeHandlers:
         auth = self._extract_auth(device_info)
 
         if self.backup_tool:
-            result = self.backup_tool._run(device_ip, auth, operation="backup")
+            backup_tool = self._get_backup_tool_for_device(state)
+            result = backup_tool._run(device_ip, auth, operation="backup")
             if isinstance(result, dict):
                 backup_success = result.get("success", False)
                 config_backup = result.get("config", "")
@@ -653,9 +688,10 @@ class NodeHandlers:
         auth = self._extract_auth(device_info)
 
         exec_log: list[dict[str, Any]] = []
+        device_type = self._get_device_type(state)
 
         for cmd in commands:
-            record = self._execute_single_command(device_ip, cmd, auth)
+            record = self._execute_single_command(device_ip, cmd, auth, device_type)
             exec_log.append(record)
 
             # 审计日志：配置变更
@@ -712,8 +748,9 @@ class NodeHandlers:
                 iface = device_info.get("interface_name", "Gi0/1")
                 actual_command = f"show interface {iface}"
 
-            if self.switch_diag_tool:
-                result = self.switch_diag_tool._run(device_ip, actual_command, auth)
+            verify_diag_tool = self._get_diag_tool_for_device(state)
+            if verify_diag_tool:
+                result = verify_diag_tool._run(device_ip, actual_command, auth)
                 if result.success:
                     after_outputs.append(result.output)
                 else:
@@ -903,12 +940,17 @@ class NodeHandlers:
         return defaults
 
     def _execute_single_command(
-        self, device_ip: str, command: str, auth: DeviceAuth
+        self, device_ip: str, command: str, auth: DeviceAuth, device_type: str = "MOCK"
     ) -> dict[str, Any]:
-        """执行单条命令（含幂等检查 fallback）。"""
+        """执行单条命令（含幂等检查 fallback）。REQ-FUNC-119: device_type 驱动工具选择。"""
         try:
             if self.switch_config_tool:
-                result = self.switch_config_tool._run(device_ip, [command], auth)
+                if device_type == "SIMULATOR":
+                    from src.tools.simulator_config_tool import SimulatorConfigTool
+                    config_tool = SimulatorConfigTool()
+                else:
+                    config_tool = self.switch_config_tool
+                result = config_tool._run(device_ip, [command], auth)
                 return {
                     "command": command,
                     "success": result.success,

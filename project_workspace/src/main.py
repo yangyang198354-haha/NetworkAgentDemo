@@ -27,7 +27,7 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Depends, HTTPException
 from loguru import logger
 from pydantic import ValidationError as PydanticValidationError
 
@@ -109,6 +109,10 @@ webhook_receiver = WebhookReceiver(normalizer=alert_normalizer)
 
 # ── MOD-WEB: Web UI 单例 ───────────────────────────────────
 encryption_service = EncryptionService()
+
+# ── MOD-DS: 模拟器生命周期管理器 ────────────────────────────
+from src.simulator.lifecycle_manager import SimulatorLifecycleManager
+simulator_lifecycle_manager = SimulatorLifecycleManager()
 
 
 # ────────────────────────────────────────────────────
@@ -192,6 +196,7 @@ async def lifespan(app: FastAPI):
     # ── 关闭 ──
     logger.info("NetworkAgentDemo shutting down...")
     # [DEPRECATED v0.2.0] inspection_scheduler.stop_scheduler() 已移除
+    simulator_lifecycle_manager.shutdown_all()
     logger.info("NetworkAgentDemo shutdown complete.")
 
 
@@ -212,6 +217,30 @@ from src.api import auth_router, api_router
 app.include_router(auth_router)
 app.include_router(api_router)
 logger.info("Web UI API routers registered (auth + 8 API routers)")
+
+# ── [NEW v0.2.0-unified] Internal endpoint: CLI → Web batch workflow trigger
+# Registered without JWT (internal localhost, ADR-002).
+# The handler logic is in inspection_router.py; we register the raw route here.
+from src.api.inspection_router import (
+    trigger_inspection_workflows_handler as _trigger_workflows_handler,
+    TriggerWorkflowsRequest,
+    TriggerWorkflowsResponse,
+)
+
+@app.post(
+    "/api/inspection/{record_id}/trigger-workflows",
+    response_model=TriggerWorkflowsResponse,
+    tags=["Inspection"],
+    summary="[Internal] Batch trigger workflows for inspection alerts",
+)
+async def _trigger_workflows_route(
+    record_id: int,
+    body: TriggerWorkflowsRequest,
+    db=Depends(db_get_db),
+):
+    """Internal endpoint called by InspectionCLI to batch-trigger LangGraph workflows.
+    No JWT required — localhost-only (ADR-002)."""
+    return await _trigger_workflows_handler(record_id=record_id, body=body, db=db)
 
 
 # ────────────────────────────────────────────────────

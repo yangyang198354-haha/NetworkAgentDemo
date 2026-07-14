@@ -85,8 +85,40 @@
       </div>
     </el-card>
 
-    <!-- MOD-005: Inline inspection summary (REQ-FUNC-002, ADR-005) -->
-    <InspectionSummaryCard :records="historyRecords" :loading="historyLoading" />
+    <!-- v0.2.1: Journal Log Window (REQ-FUNC-002) — between status panel and form row -->
+    <el-card class="journal-panel" style="margin-top:20px">
+      <template #header>
+        <div class="card-header">
+          <span>巡检日志</span>
+          <el-button link type="primary" @click="journalExpanded = !journalExpanded">
+            {{ journalExpanded ? '收起日志' : '展开日志' }}
+          </el-button>
+        </div>
+      </template>
+      <div v-if="journalExpanded" v-loading="store.journalLoading">
+        <div style="margin-bottom:8px">
+          <el-button size="small" @click="refreshJournal" :loading="store.journalLoading">
+            刷新
+          </el-button>
+        </div>
+        <div
+          class="journal-terminal"
+          ref="journalTerminalRef"
+        >
+          <div v-if="store.journalError" class="journal-error-message">
+            日志加载失败：{{ store.journalError }}
+          </div>
+          <div v-else-if="store.journalLines.length === 0 && !store.journalLoading" class="journal-empty-message">
+            暂无巡检日志
+          </div>
+          <template v-else>
+            <div v-for="(line, idx) in store.journalLines" :key="idx" class="journal-line">
+              {{ line }}
+            </div>
+          </template>
+        </div>
+      </div>
+    </el-card>
 
     <el-row :gutter="20" style="margin-top:20px">
       <!-- v0.2.0: Configuration Form (polling_interval → retry_backoff) -->
@@ -116,11 +148,10 @@
 
       <el-col :span="12">
         <el-card>
-          <template #header><span>手动触发巡检</span></template>
-          <p style="color:#909399;margin-bottom:16px">对所有纳管设备立即执行一次完整的巡检操作。</p>
-          <el-button type="primary" :loading="store.inspectionRunning" :disabled="store.inspectionRunning"
-            @click="handleTrigger">
-            {{ store.inspectionRunning ? '巡检执行中...' : '手动触发巡检' }}
+          <template #header><span>快速操作</span></template>
+          <p style="color:#909399;margin-bottom:16px">巡检快捷入口和状态概览。</p>
+          <el-button type="primary" @click="$router.push('/inspection/manual')">
+            手动巡检
           </el-button>
           <el-button link @click="$router.push('/inspection/history')" style="margin-left:16px">
             查看巡检历史 &rarr;
@@ -132,10 +163,9 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, onMounted, onUnmounted } from 'vue'
+import { reactive, ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useInspectionStore } from '@/stores/inspection'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import InspectionSummaryCard from '@/components/inspection/InspectionSummaryCard.vue'
 
 const store = useInspectionStore()
 const loading = ref(false)
@@ -143,9 +173,9 @@ const saving = ref(false)
 const statusLoading = ref(false)
 const actionLoading = ref<string | null>(null)
 
-// MOD-005: History summary data state (REQ-FUNC-002, ADR-003)
-const historyRecords = ref<any[]>([])
-const historyLoading = ref(false)
+// ── v0.2.1: Journal log window state ────────────────────
+const journalExpanded = ref(false)
+const journalTerminalRef = ref<HTMLElement | null>(null)
 
 // Polling timer for status (REQ-INSP-005: 5-second interval)
 let statusPollingTimer: ReturnType<typeof setInterval> | null = null
@@ -187,8 +217,6 @@ onMounted(async () => {
   await refreshStatus()
   statusPollingTimer = setInterval(refreshStatus, 5000)
 
-  // MOD-005: Load recent 5 inspection records for inline summary (REQ-FUNC-002, ADR-003)
-  await fetchHistorySummary()
 })
 
 onUnmounted(() => {
@@ -207,17 +235,26 @@ async function refreshStatus() {
   }
 }
 
-// ── MOD-005: Fetch recent inspection history summary (REQ-FUNC-002, ADR-003) ─
+// ── v0.2.1: Journal log functions ──────────────────────
 
-async function fetchHistorySummary() {
-  historyLoading.value = true
-  try {
-    await store.fetchHistory({ page: 1, page_size: 5 })
-    historyRecords.value = store.historyList
-  } finally {
-    historyLoading.value = false
-  }
+async function refreshJournal() {
+  await store.fetchJournal(100)
 }
+
+// Auto-scroll to bottom when journal lines update
+watch(() => store.journalLines, async () => {
+  await nextTick()
+  if (journalTerminalRef.value) {
+    journalTerminalRef.value.scrollTop = journalTerminalRef.value.scrollHeight
+  }
+})
+
+// When user expands the journal panel, fetch if empty
+watch(journalExpanded, async (expanded) => {
+  if (expanded && store.journalLines.length === 0 && !store.journalLoading) {
+    await store.fetchJournal(100)
+  }
+})
 
 // ── Save config ───────────────────────────────────────────
 
@@ -240,24 +277,6 @@ async function handleSave() {
     await refreshStatus()
   } finally {
     saving.value = false
-  }
-}
-
-// ── Manual trigger ────────────────────────────────────────
-
-async function handleTrigger() {
-  try {
-    await store.triggerInspection()
-    ElMessage.success('巡检已触发')
-    await refreshStatus()
-    // MOD-005: Refresh inline summary after manual trigger (REQ-FUNC-002 AC-002-03, ADR-003)
-    await fetchHistorySummary()
-  } catch (e: any) {
-    // Error handled by Axios interceptor, but also show specific message
-    const detail = e?.response?.data?.detail
-    if (detail) {
-      ElMessage.error(detail)
-    }
   }
 }
 
@@ -378,5 +397,39 @@ function statusTagType(status: string): string {
 
 .control-buttons .el-button {
   min-width: 100px;
+}
+
+/* ── v0.2.1: Terminal-style journal log window ── */
+
+.journal-panel {
+  /* Container spacing handled inline */
+}
+
+.journal-terminal {
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 12px;
+  border-radius: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.journal-line {
+  min-height: 1.2em;
+}
+
+.journal-error-message {
+  color: #f56c6c;
+  padding: 8px 0;
+}
+
+.journal-empty-message {
+  color: #909399;
+  padding: 8px 0;
 }
 </style>

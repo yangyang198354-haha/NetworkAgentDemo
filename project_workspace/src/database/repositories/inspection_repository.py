@@ -96,6 +96,20 @@ class InspectionRepository:
             self.db.refresh(record)
         return record
 
+    # ── get_by_id ───────────────────────────────────────────
+
+    def get_by_id(self, record_id: int) -> InspectionRecord | None:
+        """Return an InspectionRecord by its primary key id.
+
+        Args:
+            record_id: The integer primary key of the InspectionRecord.
+
+        Returns:
+            The InspectionRecord ORM object if found, or None if no such record.
+        """
+        stmt = select(InspectionRecord).where(InspectionRecord.id == record_id)
+        return self.db.execute(stmt).scalar_one_or_none()
+
     # ── get_devices_for_inspection ───────────────────────────
     # IFC-WEB-004-05 (新增): 获取纳管设备列表供 CLI 巡检使用
 

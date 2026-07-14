@@ -41,6 +41,12 @@ export const useInspectionStore = defineStore('inspection', () => {
   const lastInspection = ref<Record<string, any> | null>(null)
   const systemdAvailable = ref<boolean>(false)
 
+  // ── v0.2.1: Journal log state ────────────────────────
+
+  const journalLines = ref<string[]>([])
+  const journalLoading = ref(false)
+  const journalError = ref('')
+
   // ── fetchConfig (v0.2.0: returns retry_backoff) ────────
 
   async function fetchConfig() {
@@ -162,6 +168,24 @@ export const useInspectionStore = defineStore('inspection', () => {
     }
   }
 
+  // ── fetchJournal [NEW v0.2.1] ─────────────────────────
+
+  async function fetchJournal(lines?: number) {
+    journalLoading.value = true
+    journalError.value = ''
+    try {
+      const resp: any = await client.get('/api/inspection/journal', {
+        params: { lines: lines || 100 }
+      })
+      journalLines.value = resp.lines || []
+    } catch (e: any) {
+      journalError.value = e?.response?.data?.detail || '日志加载失败'
+      // Keep previous journalLines on error (AC-003-02)
+    } finally {
+      journalLoading.value = false
+    }
+  }
+
   return {
     config,
     historyList,
@@ -174,6 +198,10 @@ export const useInspectionStore = defineStore('inspection', () => {
     lastInspection,
     systemdAvailable,
     statusError,
+    // v0.2.1: journal state
+    journalLines,
+    journalLoading,
+    journalError,
     // actions
     fetchConfig,
     updateConfig,
@@ -185,5 +213,6 @@ export const useInspectionStore = defineStore('inspection', () => {
     disableTimer,
     triggerInspection,
     fetchHistory,
+    fetchJournal,
   }
 })

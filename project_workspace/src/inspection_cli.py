@@ -84,9 +84,12 @@ class InspectionCLI:
 
     # ── IFC-INSP-003-01: run (main entry) ────────────────────
 
-    def run(self) -> CLIExitCode:
+    def run(self, trigger_mode: str = "SCHEDULED") -> CLIExitCode:
         """
         执行全量巡检并持久化结果。CLI 主入口。
+
+        Args:
+            trigger_mode: "SCHEDULED" (systemd timer) or "MANUAL" (API trigger).
 
         Returns:
             CLIExitCode enum value.
@@ -127,7 +130,7 @@ class InspectionCLI:
             completed_at = datetime.now(timezone.utc)
             try:
                 self._persist_record(
-                    trigger_mode="SCHEDULED",
+                    trigger_mode=trigger_mode,
                     started_at=started_at,
                     completed_at=completed_at,
                     total_devices=0,
@@ -147,6 +150,7 @@ class InspectionCLI:
         anomaly_count = 0
         device_results: dict[str, dict] = {}
         has_system_error = False
+        anomaly_alert_ids: list[str] = []  # [NEW] Track created Alert IDs for workflow trigger
 
         for device in devices:
             device_name = device.get("device_name", "unknown")
@@ -161,6 +165,16 @@ class InspectionCLI:
                     logger.warning(
                         f"Device {device_name}: {result['anomalies']} anomaly(s) found"
                     )
+
+                    # [NEW] Create Alert records for each anomaly event (ADR-001, REQ-FUNC-004)
+                    for event in result.get("events", []):
+                        alert_id = self._create_alert_from_event(
+                            event=event,
+                            device=device,
+                            trigger_mode=trigger_mode,
+                        )
+                        if alert_id:
+                            anomaly_alert_ids.append(alert_id)
                 else:
                     logger.info(f"Device {device_name}: OK")
             except Exception as e:
@@ -191,9 +205,10 @@ class InspectionCLI:
             exit_code = CLIExitCode.SUCCESS
 
         # 6. Persist InspectionRecord
+        record_id: int | None = None
         try:
-            self._persist_record(
-                trigger_mode="SCHEDULED",
+            record_id = self._persist_record(
+                trigger_mode=trigger_mode,
                 started_at=started_at,
                 completed_at=completed_at,
                 total_devices=total_devices,
@@ -205,9 +220,17 @@ class InspectionCLI:
         except Exception as e:
             logger.error(f"Failed to persist InspectionRecord: {e}")
             logger.error(traceback.format_exc())
-            # Don't fail the whole run for persistence error
             if exit_code == CLIExitCode.SUCCESS:
                 exit_code = CLIExitCode.PARTIAL
+
+        # 6.5. [NEW] Link Alert records to InspectionRecord (ADR-004)
+        if anomaly_alert_ids and record_id is not None:
+            self._link_alerts_to_record(anomaly_alert_ids, record_id)
+
+        # 6.6. [NEW] Trigger workflows via HTTP callback (ADR-002)
+        if anomaly_alert_ids and record_id is not None:
+            web_port = int(os.environ.get("APP_PORT", "8001"))
+            self._trigger_workflows(anomaly_alert_ids, record_id, web_port)
 
         # 7. Print summary
         elapsed = (completed_at - started_at).total_seconds()
@@ -356,10 +379,11 @@ class InspectionCLI:
         events: list[dict] = []
         anomalies = 0
 
-        # Get diag tool (reuse v0.1.0 SwitchDiagTool)
+        # Get diag tool based on device_type (REQ-FUNC-120)
         try:
             from src.tools.switch_diag_tool import create_switch_diag_tool
-            diag_tool = create_switch_diag_tool(use_mock=True)
+            dev_type = device.get("device_type", "MOCK")
+            diag_tool = create_switch_diag_tool(use_mock=True, device_type=dev_type)
         except Exception as e:
             logger.warning(f"Cannot create diag tool: {e}")
             return {
@@ -378,6 +402,7 @@ class InspectionCLI:
             device_name=device_name,
             device_ip=device_ip,
             device_model=device.get("device_model", ""),
+            device_type=device.get("device_type", "MOCK"),
         )
         auth = cm.get_device_credentials(device_name)
 
@@ -451,14 +476,18 @@ class InspectionCLI:
         anomaly_count: int,
         status: str,
         details: dict,
-    ) -> None:
-        """Persist inspection result to SQLite InspectionRecord table."""
+    ) -> int | None:
+        """Persist inspection result to SQLite InspectionRecord table.
+
+        Returns:
+            record_id (int) if successfully persisted, None on failure.
+        """
         if not self._db_session:
             raise RuntimeError("No DB session available")
 
         from src.database.repositories.inspection_repository import InspectionRepository
         repo = InspectionRepository(self._db_session)
-        repo.create_record({
+        record = repo.create_record({
             "trigger_mode": trigger_mode,
             "started_at": started_at,
             "completed_at": completed_at,
@@ -467,6 +496,144 @@ class InspectionCLI:
             "status": status,
             "details": details,
         })
+        return record.id if record else None
+
+
+    # ── [NEW] Alert creation from inspection events (ADR-001) ──────
+
+    def _create_alert_from_event(
+        self,
+        event: dict,
+        device: dict,
+        trigger_mode: str,
+    ) -> Optional[str]:
+        """
+        Create an Alert record from an inspection anomaly event.
+
+        Args:
+            event: dict from _inspect_device() with keys:
+                alert_type, severity, content, [interface], [cpu_percent]
+            device: device dict with device_name, device_ip, device_model
+            trigger_mode: "SCHEDULED" or "MANUAL" (reserved for future use)
+
+        Returns:
+            alert_id (str) if created, None on failure.
+        """
+        import uuid
+        from src.database.repositories.alert_repository import AlertRepository
+
+        try:
+            repo = AlertRepository(self._db_session)
+
+            device_info: dict = {
+                "device_name": device.get("device_name", "unknown"),
+                "device_ip": device.get("device_ip", "unknown"),
+                "device_model": device.get("device_model", ""),
+            }
+
+            if "interface" in event:
+                device_info["interface_name"] = event["interface"]
+            if "cpu_percent" in event:
+                device_info["cpu_percent"] = event["cpu_percent"]
+
+            alert_id = str(uuid.uuid4())
+            repo.create_alert({
+                "alert_id": alert_id,
+                "alert_type": event["alert_type"],
+                "severity": event["severity"],
+                "content": event["content"],
+                "device_info": device_info,
+                "source": "INSPECTION",
+            })
+
+            logger.info(
+                f"Alert created: {alert_id} "
+                f"type={event['alert_type']} device={device.get('device_name')}"
+            )
+            return alert_id
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create alert for event on {device.get('device_name')}: {e}"
+            )
+            return None
+
+    # ── [NEW] Link alerts to InspectionRecord (ADR-004) ────────────
+
+    def _link_alerts_to_record(self, alert_ids: list[str], record_id: int) -> None:
+        """
+        Update Alert device_info JSON to include inspection_record_id.
+        Uses SQLite json_set() for safe JSON mutation.
+        """
+        try:
+            from sqlalchemy import text
+            for alert_id in alert_ids:
+                self._db_session.execute(
+                    text(
+                        "UPDATE alerts SET device_info = json_set("
+                        "  COALESCE(device_info, '{}'), "
+                        "  '$.inspection_record_id', :rid"
+                        ") WHERE alert_id = :aid"
+                    ),
+                    {"rid": record_id, "aid": alert_id},
+                )
+            self._db_session.commit()
+            logger.info(
+                f"Linked {len(alert_ids)} alert(s) to InspectionRecord #{record_id}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to link alerts to InspectionRecord: {e}")
+            try:
+                self._db_session.rollback()
+            except Exception:
+                pass
+
+    # ── [NEW] Batch workflow trigger via HTTP callback (ADR-002) ────
+
+    def _trigger_workflows(
+        self,
+        alert_ids: list[str],
+        record_id: int,
+        web_port: int = 8001,
+    ) -> bool:
+        """
+        POST alert_ids to web server for batch workflow triggering.
+
+        Uses stdlib urllib.request — zero new dependencies.
+        Timeout 5 seconds, non-fatal on failure (alerts already persisted).
+
+        Returns:
+            True on success, False on failure (non-fatal).
+        """
+        import json
+        from urllib import request, error
+
+        url = f"http://127.0.0.1:{web_port}/api/inspection/{record_id}/trigger-workflows"
+        data = json.dumps({"alert_ids": alert_ids}).encode("utf-8")
+
+        try:
+            req = request.Request(
+                url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with request.urlopen(req, timeout=5) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+                logger.info(
+                    f"Workflow trigger callback: {body.get('triggered_count', 0)} triggered, "
+                    f"{body.get('skipped_count', 0)} skipped"
+                )
+                return True
+        except error.URLError as e:
+            logger.warning(
+                f"Workflow trigger callback failed (server unreachable): {e}. "
+                f"{len(alert_ids)} alert(s) persisted but workflows not started."
+            )
+            return False
+        except Exception as e:
+            logger.warning(f"Workflow trigger callback failed: {e}")
+            return False
 
 
 # ── CLI entry point: python3.11 -m src.inspection_cli run ────
@@ -482,6 +649,8 @@ def main():
 
     # run command
     run_parser = subparsers.add_parser("run", help="Execute a full inspection cycle")
+    run_parser.add_argument('--trigger', choices=['scheduled', 'manual'], default='scheduled',
+                            help='触发方式 (scheduled=定时巡检, manual=手动触发)')
     run_parser.set_defaults(func=_run_command)
 
     args = parser.parse_args()
@@ -493,10 +662,13 @@ def main():
     args.func(args)
 
 
-def _run_command(_args):
-    """Execute the 'run' command."""
+def _run_command(args):
+    """Execute the 'run' command.
+
+    v0.2.1: Passes --trigger value from CLI args to InspectionCLI.run().
+    """
     cli = InspectionCLI()
-    exit_code = cli.run()
+    exit_code = cli.run(trigger_mode=args.trigger.upper())
     sys.exit(exit_code.value)
 
 

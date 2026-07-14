@@ -89,7 +89,7 @@ class AlertNormalizer:
             alert_content=payload.alert_description,
             alert_timestamp=alert_time,
             device_info=self._extract_device_info(payload),
-            source=AlertSource.MOCK if payload.event_id is None else AlertSource.ZABBIX,
+            source=AlertSource.WEBHOOK,
         )
 
         # 去重检查
