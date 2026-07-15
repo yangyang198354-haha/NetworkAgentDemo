@@ -13,6 +13,7 @@ Provides a process-in-thread SSH server that:
 """
 
 import logging
+import os
 import random
 import socket
 import threading
@@ -28,16 +29,31 @@ from src.simulator.state_manager import DeviceStateManager
 paramiko_logger = logging.getLogger("paramiko")
 paramiko_logger.setLevel(logging.WARNING)
 
-# ── RSA host key (generated once, ephemeral for demo) ──
+# ── RSA host key (persisted to data/simulator_host_key) ──
+_HOST_KEY_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "simulator_host_key")
 _host_key: Optional[paramiko.RSAKey] = None
 
 
 def _get_host_key() -> paramiko.RSAKey:
-    """Get or generate an ephemeral RSA host key."""
+    """Get or generate a persistent RSA host key (saved to data/simulator_host_key)."""
     global _host_key
-    if _host_key is None:
-        _host_key = paramiko.RSAKey.generate(2048)
-        logger.info("[SSHServer] Generated ephemeral 2048-bit RSA host key")
+    if _host_key is not None:
+        return _host_key
+
+    # Try loading existing key
+    if os.path.exists(_HOST_KEY_PATH):
+        try:
+            _host_key = paramiko.RSAKey(filename=_HOST_KEY_PATH)
+            logger.info(f"[SSHServer] Loaded persistent host key from {_HOST_KEY_PATH}")
+            return _host_key
+        except Exception as e:
+            logger.warning(f"[SSHServer] Failed to load host key: {e}, generating new one")
+
+    # Generate and save new key
+    _host_key = paramiko.RSAKey.generate(2048)
+    os.makedirs(os.path.dirname(_HOST_KEY_PATH), exist_ok=True)
+    _host_key.write_private_key_file(_HOST_KEY_PATH)
+    logger.info(f"[SSHServer] Generated and saved persistent host key to {_HOST_KEY_PATH}")
     return _host_key
 
 
