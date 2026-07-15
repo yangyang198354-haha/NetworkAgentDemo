@@ -149,12 +149,13 @@ class LLMService:
                     output = self._mock_response(endpoint, prompt)
                     elapsed = time.time() - start_time
                     # ★ MOD-DP-007: DB dual-write for mock calls ★
-                    if self._llm_log_repo is not None and self._current_context:
+                    if self._current_context:
                         try:
                             from src.database.base import SessionLocal
+                            from src.database.repositories.llm_call_repository import LLMCallLogRepository
                             db = SessionLocal()
                             try:
-                                self._llm_log_repo.create_log(db, {
+                                LLMCallLogRepository(db).create_log({
                                     "alert_id_fk": self._current_context,
                                     "endpoint": endpoint,
                                     "elapsed_s": round(elapsed, 2),
@@ -207,12 +208,13 @@ class LLMService:
                     })
 
                 # ★ MOD-DP-007: DB dual-write for real LLM calls ★
-                if self._llm_log_repo is not None and self._current_context:
+                if self._current_context:
                     try:
                         from src.database.base import SessionLocal
+                        from src.database.repositories.llm_call_repository import LLMCallLogRepository
                         db = SessionLocal()
                         try:
-                            self._llm_log_repo.create_log(db, {
+                            LLMCallLogRepository(db).create_log({
                                 "alert_id_fk": self._current_context,
                                 "endpoint": endpoint,
                                 "elapsed_s": round(elapsed, 2),
