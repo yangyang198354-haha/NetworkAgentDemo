@@ -523,7 +523,11 @@ class _SimulatorServerInterface(paramiko.ServerInterface):
             logger.error(f"[SSHServer] Exec error: {e}")
             channel.send_stderr(f"% Error: {e}\r\n".encode())
         channel.send_exit_status(0)
-        channel.close()
+        # ★ FIX: Use shutdown_write() instead of close() so that buffered
+        # send data is flushed before the channel is torn down.  close() from
+        # the transport thread can race with the client's stdout reads in
+        # paramiko exec_command(), causing "SSHException: Channel closed."
+        channel.shutdown_write()
         return True
 
     def _shell_loop(self, channel: paramiko.Channel) -> None:
