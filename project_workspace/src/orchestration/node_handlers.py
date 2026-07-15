@@ -369,6 +369,7 @@ class NodeHandlers:
         """调用 SwitchDiagTool 执行诊断命令，收集诊断数据。"""
         node = "collect_diag"
         self._log_node(state, node, "START")
+        alert_id = state.get("alert_id", "")
 
         alert_type = state.get("alert_type", AlertType.PORT_DOWN)
         device_info = state.get("device_info", {})
@@ -433,6 +434,7 @@ class NodeHandlers:
         """调用 LLMService + RAGService 分析根因。"""
         node = "analyze_root_cause"
         self._log_node(state, node, "START")
+        alert_id = state.get("alert_id", "")
 
         alert_content = state.get("alert_content", "")
         diag_result = state.get("diag_result", "")
@@ -497,6 +499,7 @@ class NodeHandlers:
         """
         node = "generate_fix_plan"
         self._log_node(state, node, "START")
+        alert_id = state.get("alert_id", "")
 
         alert_type = state.get("alert_type", AlertType.PORT_DOWN)
         root_cause = state.get("root_cause", "")
@@ -751,6 +754,7 @@ class NodeHandlers:
         """调用 SwitchConfigTool 下发修复命令，逐条执行前幂等检查。"""
         node = "execute_fix"
         self._log_node(state, node, "START")
+        alert_id = state.get("alert_id", "")
 
         fix_plan_dict = state.get("fix_plan", {})
         commands = fix_plan_dict.get("commands", [])
@@ -809,6 +813,7 @@ class NodeHandlers:
         """重新诊断，对比修复前后状态。"""
         node = "verify_result"
         self._log_node(state, node, "START")
+        alert_id = state.get("alert_id", "")
 
         alert_type = state.get("alert_type", AlertType.PORT_DOWN)
         device_info = state.get("device_info", {})
