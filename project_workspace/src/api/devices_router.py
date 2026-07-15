@@ -306,10 +306,11 @@ def simulator_start(device_id: int, body: SimulatorStartRequest, db: Session = D
     )
 
     if success and actual_ssh_port:
-        # Persist port and status
+        # Persist port and status (auto-set ONLINE since simulator is ready)
         repo.update_device(device_id, {
             "simulator_port": actual_ssh_port,
             "simulator_status": "RUNNING",
+            "status": "ONLINE",
         })
 
     return {
@@ -334,7 +335,7 @@ def simulator_stop(device_id: int, db: Session = Depends(get_db)):
     success, message = lm.stop_simulator(device_id)
 
     if success:
-        repo.update_device(device_id, {"simulator_status": "STOPPED"})
+        repo.update_device(device_id, {"simulator_status": "STOPPED", "status": "OFFLINE"})
 
     return {"success": success, "message": message}
 
@@ -381,20 +382,14 @@ def device_heartbeat(device_id: int, db: Session = Depends(get_db)):
     live_status = lm.get_status(device_id)
 
     if live_status.get("running") and live_status.get("ssh_port"):
-        # Simulator runs on same VPS — always use 127.0.0.1
+        # Simulator managed by LifecycleManager — use its SSH port
         ssh_host = "127.0.0.1"
         ssh_port = live_status["ssh_port"]
-        is_online, response_ms = lm.heartbeat(ssh_host, ssh_port)
-
-        # Update device status
-        new_status = "ONLINE" if is_online else "OFFLINE"
-        repo.update_device(device_id, {"status": new_status})
-
-        return {
-            "device_id": device_id,
-            "status": new_status,
-            "response_time_ms": response_ms,
-        }
+    elif device.simulator_port:
+        # Fallback: LifecycleManager lost track (e.g. after restart),
+        # use the port from DB for direct TCP check
+        ssh_host = "127.0.0.1"
+        ssh_port = device.simulator_port
     else:
         repo.update_device(device_id, {"status": "OFFLINE"})
         return {
@@ -402,6 +397,16 @@ def device_heartbeat(device_id: int, db: Session = Depends(get_db)):
             "status": "OFFLINE",
             "response_time_ms": None,
         }
+
+    is_online, response_ms = lm.heartbeat(ssh_host, ssh_port)
+    new_status = "ONLINE" if is_online else "OFFLINE"
+    repo.update_device(device_id, {"status": new_status})
+
+    return {
+        "device_id": device_id,
+        "status": new_status,
+        "response_time_ms": response_ms,
+    }
 
 
 # ── GET /api/devices/{device_id}/ports ─────────────────────
