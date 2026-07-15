@@ -260,7 +260,7 @@ async def get_device_diagnostics(device_id: int, db: Session = Depends(get_db)):
 # ── POST /api/devices/{device_id}/simulator/start ──────────
 
 @devices_router.post("/{device_id}/simulator/start")
-async def simulator_start(device_id: int, body: SimulatorStartRequest, db: Session = Depends(get_db)):
+def simulator_start(device_id: int, body: SimulatorStartRequest, db: Session = Depends(get_db)):
     """
     REQ-FUNC-121: 启动模拟器 SSH 服务。
     用户确认: 手动触发策略 — 创建设备后点击"启动模拟器"按钮。
@@ -319,7 +319,7 @@ async def simulator_start(device_id: int, body: SimulatorStartRequest, db: Sessi
 # ── POST /api/devices/{device_id}/simulator/stop ───────────
 
 @devices_router.post("/{device_id}/simulator/stop")
-async def simulator_stop(device_id: int, db: Session = Depends(get_db)):
+def simulator_stop(device_id: int, db: Session = Depends(get_db)):
     """REQ-FUNC-121: 停止模拟器 SSH 服务。"""
     repo = DeviceRepository(db)
     device = repo.get_device_by_id(device_id)
@@ -338,7 +338,7 @@ async def simulator_stop(device_id: int, db: Session = Depends(get_db)):
 # ── GET /api/devices/{device_id}/simulator/status ──────────
 
 @devices_router.get("/{device_id}/simulator/status")
-async def simulator_status(device_id: int, db: Session = Depends(get_db)):
+def simulator_status(device_id: int, db: Session = Depends(get_db)):
     """REQ-FUNC-121: 查询模拟器运行状态。"""
     repo = DeviceRepository(db)
     device = repo.get_device_by_id(device_id)
@@ -355,7 +355,7 @@ async def simulator_status(device_id: int, db: Session = Depends(get_db)):
 # ── POST /api/devices/{device_id}/heartbeat ────────────────
 
 @devices_router.post("/{device_id}/heartbeat")
-async def device_heartbeat(device_id: int, db: Session = Depends(get_db)):
+def device_heartbeat(device_id: int, db: Session = Depends(get_db)):
     """
     REQ-FUNC-113: 心跳检测 — TCP 端口可达性探测。
     仅适用于 SIMULATOR 设备，MOCK 设备返回 UNKNOWN。
@@ -403,7 +403,7 @@ async def device_heartbeat(device_id: int, db: Session = Depends(get_db)):
 # ── GET /api/devices/{device_id}/ports ─────────────────────
 
 @devices_router.get("/{device_id}/ports")
-async def get_device_ports(device_id: int, db: Session = Depends(get_db)):
+def get_device_ports(device_id: int, db: Session = Depends(get_db)):
     """
     REQ-FUNC-114: 查看模拟器端口状态列表。
     仅适用于 SIMULATOR 设备。
@@ -431,7 +431,7 @@ async def get_device_ports(device_id: int, db: Session = Depends(get_db)):
 # ── POST /api/devices/{device_id}/ports/{port_name}/config ─
 
 @devices_router.post("/{device_id}/ports/{port_name}/config")
-async def configure_device_port(
+def configure_device_port(
     device_id: int,
     port_name: str,
     body: PortConfigRequest,
@@ -465,7 +465,7 @@ async def configure_device_port(
 # ── GET /api/devices/{device_id}/system ────────────────────
 
 @devices_router.get("/{device_id}/system")
-async def get_device_system(device_id: int, db: Session = Depends(get_db)):
+def get_device_system(device_id: int, db: Session = Depends(get_db)):
     """
     REQ-FUNC-115: 查看模拟器 CPU/内存/IO 使用情况。
     仅适用于 SIMULATOR 设备。

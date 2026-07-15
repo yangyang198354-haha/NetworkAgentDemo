@@ -80,15 +80,17 @@ class SimulatorLifecycleManager:
             return True
 
     def allocate_ports(self, preferred_ssh: int = 0, preferred_mgmt: int = 0) -> tuple[int, int]:
-        """Allocate SSH + management port pair."""
+        """
+        Allocate SSH + management port pair.
+        NOTE: Caller must hold self._lock.
+        """
         used_ssh = set()
         used_mgmt = set()
-        with self._lock:
-            for info in self._instances.values():
-                if info.get("ssh_port"):
-                    used_ssh.add(info["ssh_port"])
-                if info.get("mgmt_port"):
-                    used_mgmt.add(info["mgmt_port"])
+        for info in self._instances.values():
+            if info.get("ssh_port"):
+                used_ssh.add(info["ssh_port"])
+            if info.get("mgmt_port"):
+                used_mgmt.add(info["mgmt_port"])
 
         if preferred_ssh > 0 and preferred_ssh not in used_ssh and not self.check_port_used(preferred_ssh):
             ssh_port = preferred_ssh
