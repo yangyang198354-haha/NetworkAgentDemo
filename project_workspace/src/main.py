@@ -190,6 +190,20 @@ async def lifespan(app: FastAPI):
     #   interval = config_manager.get("inspection.interval_minutes") or 5
     #   inspection_scheduler.start_scheduler(interval_minutes=interval, device_list=default_devices)
 
+    # 8a. 启动时重置所有模拟器状态（进程已随服务重启丢失）
+    try:
+        from src.database.base import SessionLocal
+        db = SessionLocal()
+        try:
+            from sqlalchemy import text
+            db.execute(text("UPDATE devices SET simulator_status='STOPPED', status='OFFLINE' WHERE device_type='SIMULATOR'"))
+            db.commit()
+            logger.info("Simulator statuses reset on startup")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Failed to reset simulator statuses: {e}")
+
     logger.info("NetworkAgentDemo is ready!")
     yield
 
