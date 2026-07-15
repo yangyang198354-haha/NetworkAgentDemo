@@ -194,6 +194,8 @@ class AlertRepository:
         Returns:
             Updated Alert ORM object, or None if alert_id not found.
         """
+        # Force fresh read from DB (bypass ORM identity map cache)
+        self.db.expire_all()
         alert = self.get_alert_by_id(alert_id)
         if alert is None:
             return None
@@ -202,7 +204,6 @@ class AlertRepository:
         alert.workflow_state = merged
         alert.updated_at = datetime.now(timezone.utc)
         self.db.commit()
-        self.db.refresh(alert)
         return alert
 
     # ── IFC-DP-004-02: get_workflow_state ─────────────────────
