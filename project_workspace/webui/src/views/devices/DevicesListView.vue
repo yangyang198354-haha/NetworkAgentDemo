@@ -39,8 +39,13 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="last_diag_at" label="最近诊断" width="160">
-          <template #default="{ row }">{{ formatTime(row.last_diag_at) }}</template>
+        <el-table-column label="心跳延时" width="100">
+          <template #default="{ row }">
+            <span v-if="heartbeatLatency[row.id] !== undefined" :style="{ color: heartbeatLatency[row.id] < 10 ? '#67C23A' : heartbeatLatency[row.id] < 50 ? '#E6A23C' : '#F56C6C' }">
+              {{ heartbeatLatency[row.id] }}ms
+            </span>
+            <span v-else style="color: #909399;">-</span>
+          </template>
         </el-table-column>
         <el-table-column label="凭据" width="80">
           <template #default="{ row }">
@@ -58,7 +63,6 @@
                 text type="success" @click="handleStartSimulator(row)">启动</el-button>
               <el-button v-else
                 text type="danger" @click="handleStopSimulator(row)">停止</el-button>
-              <el-button text type="info" @click="handleHeartbeat(row)">心跳</el-button>
               <el-button text type="primary" @click="showSimulatorPanel(row)">面板</el-button>
             </template>
             <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
@@ -187,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useDevicesStore } from '@/stores/devices'
 import { ElMessageBox, ElMessage } from 'element-plus'
 
@@ -225,7 +229,26 @@ const hasSimulators = computed(() =>
   store.deviceList.some((d: any) => d.device_type === 'SIMULATOR')
 )
 
-onMounted(() => store.fetchDevices())
+  // ── Heartbeat Latency ──────────────────────────────────
+  const heartbeatLatency = reactive<Record<number, number>>({})
+
+  async function refreshHeartbeats() {
+    for (const d of store.deviceList) {
+      if (d.device_type === 'SIMULATOR' && d.simulator_status === 'RUNNING') {
+        try {
+          const resp = await store.heartbeat(d.id)
+          if (resp.response_time_ms !== null && resp.response_time_ms !== undefined) {
+            heartbeatLatency[d.id] = resp.response_time_ms
+          }
+        } catch { /* ignore */ }
+      }
+    }
+  }
+
+  onMounted(async () => {
+    await store.fetchDevices()
+    await refreshHeartbeats()
+  })
 
 // ── Device CRUD ────────────────────────────────────────
 function showAddDialog() {
