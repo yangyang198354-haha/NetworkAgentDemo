@@ -171,12 +171,30 @@ class AlertNormalizer:
 
     @staticmethod
     def _extract_device_info(payload: AlertPayload) -> dict:
-        """从 AlertPayload 提取 DeviceInfo 字段。"""
+        """从 AlertPayload 提取 DeviceInfo 字段，并查 DB 获取 device_type (G2)。"""
         from src.models.alert import DeviceInfo
+        device_type = "MOCK"
+        try:
+            from src.database.base import SessionLocal
+            from src.database.repositories.device_repository import DeviceRepository
+            db = SessionLocal()
+            try:
+                repo = DeviceRepository(db)
+                devices = repo.list_devices()
+                for d in devices:
+                    if d.device_name == payload.alert_host:
+                        device_type = d.device_type or "MOCK"
+                        break
+            finally:
+                db.close()
+        except Exception:
+            pass
+
         return DeviceInfo(
             device_name=payload.alert_host,
             device_ip=payload.alert_ip,
             interface_name=payload.alert_interface,
             mac_address=payload.alert_mac,
             cpu_percent=payload.alert_cpu,
+            device_type=device_type,
         )

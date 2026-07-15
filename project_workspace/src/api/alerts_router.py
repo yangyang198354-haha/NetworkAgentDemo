@@ -192,6 +192,19 @@ async def simulate_alert(
         ),
     }
 
+    # G1: Look up device_type from DB for SIMULATOR devices
+    device_type = "MOCK"
+    try:
+        from src.database.repositories.device_repository import DeviceRepository
+        device_repo = DeviceRepository(db)
+        existing = device_repo.list_devices()
+        for d in existing:
+            if d.device_name == body.device_name:
+                device_type = d.device_type or "MOCK"
+                break
+    except Exception:
+        pass
+
     alert = Alert(
         alert_type=atype,
         alert_severity=AlertSeverity.MAJOR,
@@ -203,6 +216,7 @@ async def simulate_alert(
             interface_name=body.interface,
             mac_address=body.mac_address,
             cpu_percent=body.cpu_percent,
+            device_type=device_type,
         ),
         source=AlertSource.MOCK,
     )

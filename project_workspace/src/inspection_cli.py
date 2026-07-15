@@ -324,6 +324,8 @@ class InspectionCLI:
                     "device_name": d.device_name,
                     "device_ip": d.device_ip,
                     "device_model": d.device_model or "",
+                    "device_type": d.device_type or "MOCK",       # G4
+                    "simulator_port": d.simulator_port,          # G4
                 }
                 for d in devices
             ]
@@ -529,6 +531,8 @@ class InspectionCLI:
                 "device_name": device.get("device_name", "unknown"),
                 "device_ip": device.get("device_ip", "unknown"),
                 "device_model": device.get("device_model", ""),
+                "device_type": device.get("device_type", "MOCK"),     # G3
+                "simulator_port": device.get("simulator_port"),       # G3
             }
 
             if "interface" in event:
