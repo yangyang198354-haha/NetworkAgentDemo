@@ -133,6 +133,10 @@ async def list_devices(db: Session = Depends(get_db)):
 async def create_device(body: DeviceCreate, db: Session = Depends(get_db)):
     """Add a new managed device. REQ-FUNC-104: supports device_type=SIMULATOR."""
     repo = DeviceRepository(db)
+    # Check for duplicate device name
+    existing = repo.list_devices()
+    if any(d.device_name == body.device_name for d in existing):
+        raise HTTPException(status_code=409, detail=f"设备名称 '{body.device_name}' 已存在，请使用其他名称")
     device_data = {
         "device_name": body.device_name,
         "device_ip": body.device_ip,
