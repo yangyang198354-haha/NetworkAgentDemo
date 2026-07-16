@@ -34,7 +34,7 @@ class TestAlertNormalizer:
         assert alert is not None
         assert alert.alert_type == AlertType.MAC_FLAPPING
         assert alert.device_info.device_name == "Core-SW-01"
-        assert alert.source == AlertSource.MOCK
+        assert alert.source == AlertSource.WEBHOOK
 
     def test_normalize_expired_alert(self):
         """过期告警应返回 None。"""

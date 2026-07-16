@@ -42,6 +42,7 @@ class InspectionRepository:
         """Return inspection-related configuration as a dict.
 
         v0.2.0: Added diagnosis.retry_backoff; removed ui.polling_interval_seconds.
+        Returns sensible integer defaults when a config key is not yet stored in DB.
         """
         keys = [
             "inspection.interval_minutes",
@@ -49,11 +50,17 @@ class InspectionRepository:
             "diagnosis.retry_max",
             "diagnosis.retry_backoff",
         ]
+        defaults = {
+            "inspection.interval_minutes": "5",
+            "diagnosis.timeout_seconds": "30",
+            "diagnosis.retry_max": "3",
+            "diagnosis.retry_backoff": "2",
+        }
         result: dict[str, str] = {}
         for key in keys:
             stmt = select(SystemConfig).where(SystemConfig.config_key == key)
             row = self.db.execute(stmt).scalar_one_or_none()
-            result[key] = row.config_value if row else ""
+            result[key] = row.config_value if row else defaults.get(key, "0")
         return result
 
     # ── update_config ───────────────────────────────────────
