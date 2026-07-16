@@ -1,10 +1,12 @@
 """
 MOD-005: NodeHandlers — LangGraph node handler functions (14 nodes).
+MOD-TL-002: _log_node enhanced with sequence_number, duration_ms, status parameter,
+           START INSERT + END UPDATE dual-phase DB persistence.
 @author sub_agent_software_developer
-@module MOD-005
-@implements IFC-005-01 ~ IFC-005-14
-@depends MOD-006, MOD-007, MOD-008, MOD-009, MOD-010, MOD-011, MOD-012, MOD-013, MOD-014, MOD-015
-@covers REQ-FUNC-005 ~ REQ-FUNC-016, REQ-FUNC-023 ~ REQ-FUNC-025
+@module MOD-005, MOD-TL-002
+@implements IFC-005-01 ~ IFC-005-14, IFC-TL-002-01, IFC-TL-002-02, IFC-TL-002-03
+@depends MOD-006, MOD-007, MOD-008, MOD-009, MOD-010, MOD-011, MOD-012, MOD-013, MOD-014, MOD-015, MOD-TL-003
+@covers REQ-FUNC-005 ~ REQ-FUNC-016, REQ-FUNC-023 ~ REQ-FUNC-025, REQ-FUNC-001 ~ REQ-FUNC-006
 @fixes D-002: PendingApprovalRecord import relocated from src.models.state to src.models.fix_plan
 """
 
@@ -93,6 +95,7 @@ class NodeHandlers:
         self.audit_logger = audit_logger or AuditLogger()
         self.config_manager = config_manager or ConfigManager()
         self._timeline_store: dict[str, list[dict[str, Any]]] = {}  # alert_id → timeline entries
+        self.__seq_counters: dict[str, int] = {}  # IFC-TL-002-02: per-alert sequence_number counter
 
     def get_timeline(self, alert_id: str) -> list[dict[str, Any]]:
         """Return timeline entries for an alert."""
@@ -189,42 +192,143 @@ class NodeHandlers:
 
     # ── 内部辅助: 日志记录 + 时间线 ──────────────────────────
 
-    def _log_node(self, state: NetworkAgentState, node_name: str, phase: str, duration_ms: int = 0) -> None:
-        """记录节点执行日志 + 写入内存时间线。"""
+    def _log_node(self, state: NetworkAgentState, node_name: str, phase: str,
+                  duration_ms: int = 0, status: str = "COMPLETED") -> None:
+        """
+        记录节点执行日志 + 写入内存时间线 + 双步 DB 持久化。
+
+        IFC-TL-002-01: START phase — allocate sequence_number, INSERT into DB (status=RUNNING),
+                        store returned DB id in _timeline_store.
+        IFC-TL-002-01: END phase — find matching RUNNING entry, compute duration_ms,
+                        UPDATE DB (completed_at, duration_ms, status, state_snapshot).
+
+        Args:
+            state: Current NetworkAgentState dict.
+            node_name: Name of the executing LangGraph node.
+            phase: "START" or "END".
+            duration_ms: Pre-computed duration (legacy, kept for compatibility; END phase
+                         recomputes from started_at timestamp).
+            status: Node result status. Default "COMPLETED". Set to "FAILED" for error paths.
+        """
         alert_id = state.get("alert_id", "UNKNOWN")
-        now_ts = datetime.now(timezone.utc).isoformat()
+        now_dt = datetime.now(timezone.utc)
+        now_ts = now_dt.isoformat()
         summary = {
             "alert_type": state.get("alert_type", ""),
             "status": state.get("status", ""),
         }
 
         if phase == "START":
-            # Create pending timeline entry
+            # ── 1. Allocate sequence_number (IFC-TL-002-02) ──
+            if alert_id not in self.__seq_counters:
+                # Lazy-init: query DB for current MAX(sequence_number) for this alert
+                max_seq = 0
+                try:
+                    from src.database.base import SessionLocal
+                    from sqlalchemy import text as sa_text
+                    db = SessionLocal()
+                    try:
+                        result = db.execute(
+                            sa_text(
+                                "SELECT COALESCE(MAX(sequence_number), 0) "
+                                "FROM alert_timeline WHERE alert_id_fk = :aid"
+                            ),
+                            {"aid": alert_id},
+                        )
+                        max_seq = result.scalar() or 0
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.debug(f"Failed to query MAX(sequence_number) for {alert_id}: {e}")
+                self.__seq_counters[alert_id] = max_seq
+
+            self.__seq_counters[alert_id] += 1
+            seq_num = self.__seq_counters[alert_id]
+
+            # ── 2. Create in-memory timeline entry ──
             if alert_id not in self._timeline_store:
                 self._timeline_store[alert_id] = []
-            self._timeline_store[alert_id].append({
+            mem_entry = {
                 "id": f"{node_name}_{len(self._timeline_store[alert_id])}",
                 "node_name": node_name,
                 "status": "RUNNING",
                 "started_at": now_ts,
+                "started_at_dt": now_dt,  # keep datetime for duration calc
                 "completed_at": None,
                 "state_snapshot": dict(state),
-            })
+                "sequence_number": seq_num,
+                "_db_id": None,  # will be filled by DB INSERT return
+            }
+            self._timeline_store[alert_id].append(mem_entry)
+
+            # ── 3. DB INSERT (IFC-TL-003-02 / ADR-TL-004 Option B) ──
+            try:
+                from src.database.base import SessionLocal
+                from src.database.repositories.alert_repository import AlertRepository
+                db = SessionLocal()
+                try:
+                    db_entry = AlertRepository(db).append_timeline_entry(alert_id, {
+                        "node_name": node_name,
+                        "state_snapshot": dict(state),
+                        "started_at": now_dt,
+                        "status": "RUNNING",
+                        "sequence_number": seq_num,
+                    })
+                    mem_entry["_db_id"] = db_entry.id
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.debug(f"Timeline START DB persist skipped: {e}")
+
         elif phase == "END":
-            # Finalize the matching START entry
+            # ── 1. Find matching RUNNING entry (search reversed for latest) ──
             entries = self._timeline_store.get(alert_id, [])
             matched_entry = None
             for entry in reversed(entries):
                 if entry["node_name"] == node_name and entry["status"] == "RUNNING":
-                    entry["status"] = "COMPLETED"
-                    entry["completed_at"] = now_ts
-                    entry["duration_ms"] = duration_ms
-                    entry["state_snapshot"] = dict(state)
                     matched_entry = entry
                     break
-            self.audit_logger.log_node_execution(alert_id, node_name, phase, summary, duration_ms)
-            # Persist timeline to SQLite so it survives restart
+
+            # ── 2. Compute duration_ms ──
+            if matched_entry and matched_entry.get("started_at_dt"):
+                computed_duration = int(
+                    (now_dt - matched_entry["started_at_dt"]).total_seconds() * 1000
+                )
+            else:
+                computed_duration = duration_ms or 0
+
+            # ── 3. Update in-memory entry ──
             if matched_entry:
+                matched_entry["status"] = status
+                matched_entry["completed_at"] = now_ts
+                matched_entry["duration_ms"] = computed_duration
+                matched_entry["state_snapshot"] = dict(state)
+
+            # ── 4. Audit log ──
+            self.audit_logger.log_node_execution(alert_id, node_name, phase, summary, computed_duration)
+
+            # ── 5. DB UPDATE (IFC-TL-003-01 / ADR-TL-004 Option B) ──
+            if matched_entry and matched_entry.get("_db_id"):
+                try:
+                    from src.database.base import SessionLocal
+                    from src.database.repositories.alert_repository import AlertRepository
+                    db = SessionLocal()
+                    try:
+                        AlertRepository(db).update_timeline_entry(
+                            matched_entry["_db_id"],
+                            {
+                                "completed_at": now_dt,
+                                "duration_ms": computed_duration,
+                                "status": status,
+                                "state_snapshot": dict(state),
+                            },
+                        )
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.debug(f"Timeline END DB update skipped: {e}")
+            elif matched_entry:
+                # Fallback: no _db_id (START DB INSERT failed), do a fresh INSERT
                 try:
                     from src.database.base import SessionLocal
                     from src.database.repositories.alert_repository import AlertRepository
@@ -233,13 +337,16 @@ class NodeHandlers:
                         AlertRepository(db).append_timeline_entry(alert_id, {
                             "node_name": node_name,
                             "state_snapshot": dict(state),
-                            "started_at": datetime.now(timezone.utc),
-                            "status": "COMPLETED",
+                            "started_at": now_dt,
+                            "completed_at": now_dt,
+                            "status": status,
+                            "duration_ms": computed_duration,
+                            "sequence_number": matched_entry.get("sequence_number"),
                         })
                     finally:
                         db.close()
                 except Exception as e:
-                    logger.debug(f"Timeline DB persist skipped: {e}")
+                    logger.debug(f"Timeline END fallback DB persist skipped: {e}")
 
     # ── IFC-005-01: handle_receive_alert ─────────────────
 
@@ -441,12 +548,12 @@ class NodeHandlers:
         alert_type = state.get("alert_type", "")
 
         # LLM 根因分析 (with error handling — don't hang forever)
-        self.llm_service.set_context(state.get("alert_id"))
         try:
-            root_cause_result: RootCauseResult = self.llm_service.analyze_root_cause(alert_content, diag_result)
+            root_cause_result: RootCauseResult = self.llm_service.analyze_root_cause(
+                alert_content, diag_result, alert_id=alert_id)
         except Exception as e:
             logger.error(f"LLM analyze_root_cause failed: {e}")
-            self._log_node(state, node, "END")
+            self._log_node(state, node, "END", status="FAILED")
             return {
                 "root_cause": f"LLM分析失败: {str(e)[:200]}",
                 "knowledge_refs": [],
@@ -538,6 +645,7 @@ class NodeHandlers:
                 diag_result=diag_result,
                 device_info=device_info,
                 params_schema=template_def.params_schema,
+                alert_id=alert_id,
             )
         except Exception as e:
             logger.error(f"LLM fill_template_params failed: {e}")

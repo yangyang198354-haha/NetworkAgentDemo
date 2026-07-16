@@ -39,7 +39,6 @@ class LLMService:
         self._model = "deepseek-chat"
         self._temperature = 0.1
         self._llm_call_log: dict[str, list[dict]] = {}  # alert_id → list of call records
-        self._current_context: str | None = None
         # MOD-DP-007: optional LLMCallLogRepository for DB dual-write
         self._llm_log_repo = llm_log_repo
 
@@ -49,24 +48,20 @@ class LLMService:
             self._client = None
             logger.warning("DEEPSEEK_API_KEY not set — LLMService will use mock responses")
 
-    def set_context(self, alert_id: str | None) -> None:
-        """Set current alert context for LLM call recording."""
-        self._current_context = alert_id
-
     def get_llm_logs(self, alert_id: str) -> list[dict]:
         """Retrieve LLM call records for a given alert."""
         return self._llm_call_log.get(alert_id, [])
 
     # ── IFC-006-01: analyze_root_cause ──────────────────────
 
-    def analyze_root_cause(self, alert_content: str, diag_result: str) -> RootCauseResult:
+    def analyze_root_cause(self, alert_content: str, diag_result: str, alert_id: str = "") -> RootCauseResult:
         """
         根因分析端点（自由推理，输出 Markdown 结构化）。
         若 API key 未配置，返回 Mock fallback 分析结果。
         """
         prompt = self._build_root_cause_prompt(alert_content, diag_result)
 
-        raw_output = self._call_llm(prompt, endpoint="analyze_root_cause")
+        raw_output = self._call_llm(prompt, endpoint="analyze_root_cause", alert_id=alert_id)
 
         # 解析 Markdown 格式输出
         description = raw_output or ""
@@ -89,6 +84,7 @@ class LLMService:
         diag_result: str,
         device_info: DeviceInfo,
         params_schema: dict[str, str] | None = None,
+        alert_id: str = "",
     ) -> TemplateParams:
         """
         模板参数填充端点（严格约束，输出纯 JSON）。
@@ -98,7 +94,7 @@ class LLMService:
             template_id, template_description, root_cause, diag_result, device_info, params_schema
         )
 
-        raw_output = self._call_llm(prompt, endpoint="fill_template_params")
+        raw_output = self._call_llm(prompt, endpoint="fill_template_params", alert_id=alert_id)
 
         # 尝试解析 JSON（兼容单引号）
         try:
@@ -131,13 +127,14 @@ class LLMService:
     ) -> str:
         """生成最终处理报告（Markdown 格式）。"""
         prompt = self._build_report_prompt(alert_id, root_cause, fix_plan, exec_log, verify_result)
-        raw_output = self._call_llm(prompt, endpoint="generate_report")
+        raw_output = self._call_llm(prompt, endpoint="generate_report", alert_id=alert_id)
         return raw_output or f"# Alert Processing Report\n\nAlert ID: {alert_id}\nStatus: COMPLETED\n"
 
     # ── 内部 LLM 调用 ──────────────────────────────────────
 
-    def _call_llm(self, prompt: str, endpoint: str, max_retries: int = 3) -> str:
-        """执行 LLM 调用，含重试和日志。"""
+    def _call_llm(self, prompt: str, endpoint: str, max_retries: int = 3, alert_id: str = "") -> str:
+        """Execute LLM call with retry and logging.  alert_id is required for
+        per-alert DB dual-write; when empty, DB persistence is skipped."""
         retry_delays = [1.0, 2.0, 4.0]
 
         for attempt in range(max_retries + 1):
@@ -149,14 +146,14 @@ class LLMService:
                     output = self._mock_response(endpoint, prompt)
                     elapsed = time.time() - start_time
                     # ★ MOD-DP-007: DB dual-write for mock calls ★
-                    if self._current_context:
+                    if alert_id:
                         try:
                             from src.database.base import SessionLocal
                             from src.database.repositories.llm_call_repository import LLMCallLogRepository
                             db = SessionLocal()
                             try:
                                 LLMCallLogRepository(db).create_log({
-                                    "alert_id_fk": self._current_context,
+                                    "alert_id_fk": alert_id,
                                     "endpoint": endpoint,
                                     "elapsed_s": round(elapsed, 2),
                                     "prompt_tokens": 0,
@@ -185,37 +182,36 @@ class LLMService:
                 usage = response.usage
 
                 logger.info(
-                    f"[LLM] {endpoint} | "
+                    f"[LLM] {endpoint} {alert_id[:8]} | "
                     f"elapsed={elapsed:.2f}s | "
                     f"prompt_tokens={usage.prompt_tokens if usage else 'N/A'} | "
                     f"completion_tokens={usage.completion_tokens if usage else 'N/A'} | "
                     f"output_len={len(output)}"
                 )
 
-                # Record LLM call for Web UI
-                if self._current_context:
-                    ctx = self._current_context
-                    if ctx not in self._llm_call_log:
-                        self._llm_call_log[ctx] = []
-                    self._llm_call_log[ctx].append({
+                # Record LLM call for Web UI (in-memory)
+                if alert_id:
+                    if alert_id not in self._llm_call_log:
+                        self._llm_call_log[alert_id] = []
+                    self._llm_call_log[alert_id].append({
                         "endpoint": endpoint,
                         "timestamp": time.strftime("%H:%M:%S"),
                         "elapsed_s": round(elapsed, 2),
                         "prompt_tokens": usage.prompt_tokens if usage else 0,
                         "completion_tokens": usage.completion_tokens if usage else 0,
-                        "prompt": prompt[:3000],   # Truncate for storage
+                        "prompt": prompt[:3000],
                         "response": output[:3000],
                     })
 
                 # ★ MOD-DP-007: DB dual-write for real LLM calls ★
-                if self._current_context:
+                if alert_id:
                     try:
                         from src.database.base import SessionLocal
                         from src.database.repositories.llm_call_repository import LLMCallLogRepository
                         db = SessionLocal()
                         try:
                             LLMCallLogRepository(db).create_log({
-                                "alert_id_fk": self._current_context,
+                                "alert_id_fk": alert_id,
                                 "endpoint": endpoint,
                                 "elapsed_s": round(elapsed, 2),
                                 "prompt_tokens": usage.prompt_tokens if usage else 0,

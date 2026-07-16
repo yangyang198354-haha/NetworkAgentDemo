@@ -99,6 +99,13 @@ def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
     logger.info(f"Database initialized — {len(Base.metadata.tables)} tables created")
 
+    # MOD-TL-003: Run timeline column migration (idempotent, safe to call multiple times)
+    try:
+        from src.database.repositories.alert_repository import ensure_timeline_columns
+        ensure_timeline_columns()
+    except Exception as e:
+        logger.warning(f"Timeline column migration skipped: {e}")
+
 
 # ── IFC-WEB-003-04: get_db (FastAPI Depends) ────────────────
 

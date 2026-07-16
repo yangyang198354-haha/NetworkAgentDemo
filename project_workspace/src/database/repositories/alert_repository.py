@@ -1,19 +1,21 @@
 """
 MOD-WEB-004: AlertRepository — Alert and AlertTimeline CRUD operations.
+MOD-TL-003: AlertRepository enhanced with update_timeline_entry and ensure_timeline_columns.
 @author sub_agent_software_developer
-@module MOD-WEB-004
-@implements AlertRepository (list_alerts, get_alert_by_id, get_alert_timeline,
-           create_alert, update_alert_status, append_timeline_entry)
-@depends MOD-WEB-003
+@module MOD-WEB-004, MOD-TL-003
+@implements IFC-TL-003-01, IFC-TL-003-02, IFC-TL-003-03, IFC-TL-003-04,
+           AlertRepository (list_alerts, get_alert_by_id, get_alert_timeline,
+           create_alert, update_alert_status, append_timeline_entry, update_timeline_entry)
+@depends MOD-WEB-003, MOD-TL-001
 
 Provides paginated, filtered alert queries and timeline management.
-@covers REQ-WEBUI-FUNC-001, REQ-WEBUI-FUNC-002
+@covers REQ-WEBUI-FUNC-001, REQ-WEBUI-FUNC-002, REQ-FUNC-006
 """
 
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, text, inspect
 from sqlalchemy.orm import Session
 
 from src.database.alert_models import Alert, AlertTimeline
@@ -172,6 +174,31 @@ class AlertRepository:
         self.db.refresh(entry)
         return entry
 
+    # ── IFC-TL-003-01: update_timeline_entry ────────────────────
+
+    def update_timeline_entry(self, entry_id: int, updates: dict) -> AlertTimeline | None:
+        """
+        Update an existing AlertTimeline record by its primary key id.
+
+        Args:
+            entry_id: int — the AlertTimeline.id to update.
+            updates: dict — fields to update, may include:
+                completed_at (datetime), duration_ms (int),
+                status (str), state_snapshot (dict)
+
+        Returns:
+            Updated AlertTimeline ORM object, or None if entry_id not found.
+        """
+        stmt = select(AlertTimeline).where(AlertTimeline.id == entry_id)
+        entry = self.db.execute(stmt).scalar_one_or_none()
+        if entry is None:
+            return None
+        for key, value in updates.items():
+            setattr(entry, key, value)
+        self.db.commit()
+        self.db.refresh(entry)
+        return entry
+
     # ── IFC-DP-004-01: update_workflow_state ──────────────────
 
     def update_workflow_state(self, alert_id: str, partial_update: dict) -> Alert | None:
@@ -244,3 +271,56 @@ class AlertRepository:
             else:
                 result[key] = value
         return result
+
+
+# ── IFC-TL-003-04: ensure_timeline_columns (module-level migration) ──
+
+
+def ensure_timeline_columns() -> None:
+    """
+    Idempotent migration: detect and add missing sequence_number / duration_ms
+    columns to the alert_timeline table. Safe to call multiple times.
+
+    Must be called AFTER init_db() / create_all(), or on an already-existing DB.
+    Uses its own SessionLocal instance (creates and closes internally).
+    """
+    from loguru import logger
+    from src.database.base import SessionLocal
+
+    if SessionLocal is None:
+        logger.warning("ensure_timeline_columns: SessionLocal not initialized, skipping migration")
+        return
+
+    db = SessionLocal()
+    try:
+        # Use PRAGMA table_info to inspect existing columns
+        existing_columns: set[str] = set()
+        result = db.execute(text("PRAGMA table_info('alert_timeline')"))
+        for row in result.fetchall():
+            # row is a Row with columns: cid, name, type, notnull, dflt_value, pk
+            col_name = row[1] if isinstance(row, (tuple, list)) else row.name
+            existing_columns.add(col_name)
+
+        migrations_applied = False
+
+        if 'sequence_number' not in existing_columns:
+            db.execute(text("ALTER TABLE alert_timeline ADD COLUMN sequence_number INTEGER"))
+            logger.info("Migration: added column sequence_number to alert_timeline")
+            migrations_applied = True
+
+        if 'duration_ms' not in existing_columns:
+            db.execute(text("ALTER TABLE alert_timeline ADD COLUMN duration_ms INTEGER"))
+            logger.info("Migration: added column duration_ms to alert_timeline")
+            migrations_applied = True
+
+        if migrations_applied:
+            db.commit()
+            logger.info("ensure_timeline_columns: migration committed successfully")
+        else:
+            logger.debug("ensure_timeline_columns: all columns present, no migration needed")
+
+    except Exception as e:
+        logger.warning(f"ensure_timeline_columns: migration skipped or failed: {e}")
+        db.rollback()
+    finally:
+        db.close()

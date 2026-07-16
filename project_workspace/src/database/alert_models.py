@@ -1,9 +1,10 @@
 """
 MOD-WEB-003: Alert Models — alerts + alert_timeline tables.
+MOD-TL-001: AlertTimeline model enhanced with sequence_number, duration_ms columns.
 @author sub_agent_software_developer
-@module MOD-WEB-003
-@implements Alert (alerts 表), AlertTimeline (alert_timeline 表)
-@covers REQ-WEBUI-FUNC-001, REQ-WEBUI-FUNC-002
+@module MOD-WEB-003, MOD-TL-001
+@implements IFC-TL-001-01, IFC-TL-001-02, Alert (alerts 表), AlertTimeline (alert_timeline 表)
+@covers REQ-WEBUI-FUNC-001, REQ-WEBUI-FUNC-002, REQ-FUNC-001, REQ-FUNC-002, REQ-NFUNC-002
 """
 
 from datetime import datetime, timezone
@@ -91,6 +92,16 @@ class AlertTimeline(Base):
     status: Mapped[str] = mapped_column(
         String(15), nullable=False, default="RUNNING",
         comment="RUNNING / COMPLETED / FAILED"
+    )
+    # MOD-TL-001: sequence_number per-workflow execution order
+    sequence_number: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None,
+        comment="Per-alert execution sequence number, 1-based, no gaps"
+    )
+    # MOD-TL-001: duration_ms node processing time
+    duration_ms: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None,
+        comment="Processing duration in milliseconds (started_at → completed_at)"
     )
 
     # ── Relationships ──

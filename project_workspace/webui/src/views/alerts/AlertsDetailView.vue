@@ -1,7 +1,10 @@
 <!--
   MOD-WEB-F13: AlertsDetailView — 5-Tab alert detail (aligned with REST API).
+  MOD-TL-005: Timeline component enhanced with sequence_number, duration_ms, status display.
+  MOD-TL-006: Smart polling (5s interval, auto-stop on workflow completion).
   @covers REQ-WEBUI-FUNC-002, REQ-WEBUI-FUNC-004
   @covers REQ-DETAIL-001 ~ REQ-DETAIL-006
+  @covers REQ-FUNC-001, REQ-FUNC-002, REQ-FUNC-003, REQ-NFUNC-002, REQ-NFUNC-003, US-004
 -->
 <template>
   <div class="alert-detail" v-loading="loading">
@@ -44,10 +47,14 @@
               :timestamp="formatTime(entry.started_at)"
               :color="timelineColor(entry.status)"
             >
+              <span class="tl-seq">{{ formatSeq(entry.sequence_number) }}</span>
               <strong>{{ entry.node_name }}</strong>
               <el-tag :type="timelineStatusTag(entry.status)" size="small" style="margin-left:8px">
                 {{ entry.status }}
               </el-tag>
+              <span class="tl-duration" :style="{ color: durationColor(entry) }">
+                {{ formatDuration(entry) }}
+              </span>
               <p v-if="entry.completed_at" style="color:#909399;font-size:12px">
                 完成时间: {{ formatTime(entry.completed_at) }}
               </p>
@@ -156,7 +163,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAlertsStore } from '@/stores/alerts'
 
@@ -170,9 +177,13 @@ const llmCalls = ref<any[]>([])
 const approval = ref<any>({ need_human_approval: false, approval_status: 'UNKNOWN', risk_level: 'N/A' })
 const loading = ref(false)
 const activeTab = ref('basic')
+let pollTimer: ReturnType<typeof setInterval> | null = null
+const POLL_INTERVAL_MS = 5000   // IFC-TL-006-02: 5-second polling interval
+const MAX_POLL_COUNT = 180       // IFC-TL-006-03: max 15 minutes (180 * 5s)
+let pollCount = 0
 
-onMounted(async () => {
-  loading.value = true
+// ── IFC-TL-005-05: fetchTimelineData ──────────────────────────
+async function fetchTimelineData() {
   try {
     const resp: any = await store.fetchAlertDetail(route.params.alertId as string)
     alert.value = resp.alert
@@ -181,8 +192,47 @@ onMounted(async () => {
     commands.value = resp.commands || []
     llmCalls.value = resp.llm_calls || []
     approval.value = resp.approval || { need_human_approval: false, approval_status: 'UNKNOWN', risk_level: 'N/A' }
+  } catch (_e) {
+    // IFC-TL-005-05: silently handle network errors during polling
+  }
+}
+
+// ── IFC-TL-005-06: shouldStopPolling ──────────────────────────
+function shouldStopPolling(): boolean {
+  // Safety valve: force stop after max poll count
+  if (pollCount >= MAX_POLL_COUNT) return true
+  // Dual condition: alert is in terminal state AND no RUNNING timeline entries
+  const terminalStatuses = ['CLOSED', 'FAILED', 'REJECTED']
+  const isTerminal = terminalStatuses.includes(alert.value?.status)
+  const noRunning = timeline.value.every((e: any) => e.status !== 'RUNNING')
+  return isTerminal && noRunning
+}
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    await fetchTimelineData()
   } finally {
     loading.value = false
+  }
+
+  // IFC-TL-005-07 / IFC-TL-006-01: start smart polling
+  pollCount = 0
+  pollTimer = setInterval(() => {
+    pollCount++
+    if (shouldStopPolling()) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+      return
+    }
+    fetchTimelineData()
+  }, POLL_INTERVAL_MS)
+})
+
+// IFC-TL-005-07: cleanup on unmount
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
   }
 })
 
@@ -222,11 +272,43 @@ function formatTime(t: string) {
   const fixed = /[Zz]$|[+-]\d{2}:\d{2}$/.test(t) ? t : t + 'Z'
   return new Date(fixed).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
 }
+
+// ── IFC-TL-005-02: formatSeq ──────────────────────────────────
+function formatSeq(seq: number | null | undefined): string {
+  if (seq != null && seq > 0) return `#${seq}`
+  return '-'
+}
+
+// ── IFC-TL-005-03: formatDuration ─────────────────────────────
+function formatDuration(entry: any): string {
+  if (entry.duration_ms != null && entry.duration_ms >= 0) {
+    return `${entry.duration_ms}ms`
+  }
+  // Fallback for legacy records: compute from timestamps
+  if (entry.completed_at && entry.started_at) {
+    const end = new Date(entry.completed_at).getTime()
+    const start = new Date(entry.started_at).getTime()
+    if (!isNaN(end) && !isNaN(start)) {
+      return `${end - start}ms`
+    }
+  }
+  if (entry.status === 'RUNNING') return '(进行中)'
+  return '-'
+}
+
+// ── IFC-TL-005-04: durationColor ──────────────────────────────
+function durationColor(entry: any): string {
+  if (entry.status === 'FAILED') return '#F56C6C'
+  if (entry.status === 'RUNNING') return '#909399'
+  return '#67C23A'
+}
 </script>
 
 <style scoped>
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .llm-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.tl-seq { width: 32px; color: #909399; font-size: 12px; }
+.tl-duration { margin-left: 10px; font-size: 12px; font-weight: 500; }
 .cli-block {
   background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 8px;
   overflow-x: auto; font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
