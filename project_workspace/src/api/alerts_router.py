@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -113,8 +114,31 @@ async def get_alert_detail(alert_id: str, db: Session = Depends(get_db)):
         from src.database.repositories.llm_call_repository import LLMCallLogRepository
         llm_repo = LLMCallLogRepository(db)
         llm_calls = llm_repo.get_logs_by_alert_id_as_dicts(alert_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"LLMCallLogRepository failed for {alert_id}: {e}", exc_info=True)
+        # Fallback: direct SQLAlchemy query bypassing the repository
+        try:
+            from src.database.llm_call_models import LLMCallLog
+            from sqlalchemy import select
+            logs = list(db.execute(
+                select(LLMCallLog)
+                .where(LLMCallLog.alert_id_fk == alert_id)
+                .order_by(LLMCallLog.timestamp)
+            ).scalars().all())
+            for log in logs:
+                ts = log.timestamp
+                ts_str = ts.strftime("%H:%M:%S") if hasattr(ts, 'strftime') else str(ts)[-12:-3] if ts else ""
+                llm_calls.append({
+                    "endpoint": log.endpoint or "",
+                    "timestamp": ts_str,
+                    "elapsed_s": log.elapsed_s or 0,
+                    "prompt_tokens": log.prompt_tokens or 0,
+                    "completion_tokens": log.completion_tokens or 0,
+                    "prompt": log.prompt_summary or "",
+                    "response": log.response_summary or "",
+                })
+        except Exception as e2:
+            logger.error(f"LLM call fallback also failed for {alert_id}: {e2}", exc_info=True)
 
     return {
         "alert": alert,

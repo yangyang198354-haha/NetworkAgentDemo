@@ -86,9 +86,18 @@ class LLMCallLogRepository:
         logs = self.get_logs_by_alert_id(alert_id)
         result = []
         for log in logs:
+            # Robust timestamp formatting: handle both datetime objects and strings
+            ts = log.timestamp
+            if ts is None:
+                ts_str = ""
+            elif hasattr(ts, 'strftime'):
+                ts_str = ts.strftime("%H:%M:%S")
+            else:
+                # Fallback for string timestamps: extract HH:MM:SS portion
+                ts_str = str(ts)[-12:-3] if len(str(ts)) >= 12 else str(ts)
             result.append({
                 "endpoint": log.endpoint,
-                "timestamp": log.timestamp.strftime("%H:%M:%S") if log.timestamp else "",
+                "timestamp": ts_str,
                 "elapsed_s": log.elapsed_s,
                 "prompt_tokens": log.prompt_tokens,
                 "completion_tokens": log.completion_tokens,
