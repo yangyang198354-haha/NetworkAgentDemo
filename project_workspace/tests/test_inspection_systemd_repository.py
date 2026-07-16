@@ -87,8 +87,8 @@ class TestConfigRetryBackoff:
         assert "diagnosis.timeout_seconds" in config
         assert "diagnosis.retry_max" in config
         assert "diagnosis.retry_backoff" in config
-        # No data → all empty strings
-        assert config["diagnosis.retry_backoff"] == ""
+        # No data → returns sensible defaults (not empty strings)
+        assert config["diagnosis.retry_backoff"] == "2"
 
     def test_get_config_returns_stored_values(self, repo, db_session):
         """TC-UNIT-080: get_config returns stored values from SystemConfig."""
