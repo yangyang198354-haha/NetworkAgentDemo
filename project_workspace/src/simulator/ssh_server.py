@@ -524,7 +524,8 @@ class _SimulatorServerInterface(paramiko.ServerInterface):
         try:
             cmd = command.decode("utf-8", errors="replace")
             output = self._cli.execute(cmd)
-            channel.send(output + "\r\n" if output else "")
+            if output:
+                self._safe_send(channel, output + "\r\n")
         except Exception as e:
             logger.error(f"[SSHServer] Exec error: {e}")
             channel.send_stderr(f"% Error: {e}\r\n".encode())
@@ -621,10 +622,14 @@ class _SimulatorServerInterface(paramiko.ServerInterface):
                 pass
 
     def _safe_send(self, channel: paramiko.Channel, data) -> bool:
-        """Send data on the channel, catching exceptions. Returns True on success."""
+        """Send data on the channel, catching exceptions. Returns True on success.
+
+        Normalises line endings: standalone \n → \r\n for proper SSH terminal display.
+        """
         try:
             if isinstance(data, str):
-                data = data.encode()
+                # Normalise line endings for SSH: \n → \r\n
+                data = data.replace('\r\n', '\n').replace('\n', '\r\n').encode()
             if data and not channel.closed:
                 channel.send(data)
             return True
