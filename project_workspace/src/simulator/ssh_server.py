@@ -106,7 +106,7 @@ class SimulatorCLI:
 
         # ── show commands ──
         if lower.startswith("show "):
-            return self._handle_show(lower[5:].strip())
+            return self._handle_show(cmd[5:].strip())
 
         # ── configure terminal ──
         if lower in ("configure terminal", "configure t", "conf t"):
@@ -143,7 +143,7 @@ class SimulatorCLI:
 
         # ── Interface context ──
         if lower.startswith("interface "):
-            iface = lower[10:].strip()
+            iface = cmd.strip()[10:].strip()
             port = self.state.get_port(iface)
             if port is None:
                 return f"% Invalid interface: {iface}"
@@ -218,7 +218,7 @@ class SimulatorCLI:
             return self._show_interface_status()
 
         if lower.startswith("interface "):
-            iface = lower[10:].strip().split()[0]  # handle "show interface Gi0/1 detail"
+            iface = subcmd.strip()[10:].strip().split()[0]  # handle "show interface Gi0/1 detail"
             return self._show_interface_detail(iface)
 
         if lower in ("processes cpu", "process cpu", "proc cpu"):
@@ -501,9 +501,15 @@ class _SimulatorServerInterface(paramiko.ServerInterface):
             return paramiko.OPEN_SUCCEEDED
         return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
+    def check_channel_pty_request(
+        self, channel, term, width, height, pixelwidth, pixelheight, modes
+    ) -> bool:
+        """Accept PTY so the client stays in interactive mode and won't close after each command."""
+        return True
+
     def check_channel_shell_request(self, channel: paramiko.Channel) -> bool:
         """IFC-DS-003-04: Handle interactive shell session."""
-        self._cli = SimulatorCLI(self._state, "Sim-SW-01")
+        self._cli = SimulatorCLI(self._state, self._state.device_name)
         threading.Thread(
             target=self._shell_loop,
             args=(channel,),
@@ -514,7 +520,7 @@ class _SimulatorServerInterface(paramiko.ServerInterface):
 
     def check_channel_exec_request(self, channel: paramiko.Channel, command: bytes) -> bool:
         """Handle exec channel (single command execution)."""
-        self._cli = SimulatorCLI(self._state, "Sim-SW-01")
+        self._cli = SimulatorCLI(self._state, self._state.device_name)
         try:
             cmd = command.decode("utf-8", errors="replace")
             output = self._cli.execute(cmd)
@@ -533,80 +539,78 @@ class _SimulatorServerInterface(paramiko.ServerInterface):
     def _shell_loop(self, channel: paramiko.Channel) -> None:
         """Interactive shell read-eval-print loop."""
         try:
-            channel.send(f"\r\nWelcome to {self._state.device_name} Simulator\r\n".encode())
-            channel.send(self._cli.prompt.encode())
+            self._safe_send(channel, f"\r\nWelcome to {self._state.device_name} Simulator\r\n")
+            self._safe_send(channel, self._cli.prompt)
+
+            # Set a read timeout so transient network hiccups don't kill the shell
+            channel.settimeout(0.5)
 
             buf = b""
             while not channel.closed:
                 try:
                     data = channel.recv(1024)
                     if not data:
+                        # EOF: remote side closed the connection
+                        logger.info(f"[SSHServer] Shell EOF (client disconnect)")
                         break
-                except Exception:
+                except socket.timeout:
+                    # Expected: no data within timeout window, keep listening
+                    continue
+                except Exception as e:
+                    logger.warning(f"[SSHServer] Shell recv error: {e}")
                     break
 
                 for byte in data:
                     ch = bytes([byte])
                     if ch == b"\r":
-                        # Execute command
-                        channel.send(b"\r\n")
+                        # Execute command on carriage-return
+                        self._safe_send(channel, b"\r\n")
                         cmd = buf.decode("utf-8", errors="replace").strip()
                         buf = b""
 
+                        if not cmd:
+                            # Empty line: just re-print prompt
+                            self._safe_send(channel, self._cli.prompt)
+                            continue
+
                         if cmd.lower() in ("exit", "quit"):
-                            channel.send(b"Connection closed.\r\n")
+                            self._safe_send(channel, b"Connection closed.\r\n")
                             channel.close()
                             return
 
-                        try:
-                            output = self._cli.execute(cmd)
-                            if output:
-                                channel.send((output + "\r\n").encode())
-                        except Exception as e:
-                            channel.send(f"% Error: {e}\r\n".encode())
-                            logger.error(f"[SSHServer] Shell error: {e}")
-
-                        channel.send(self._cli.prompt.encode())
+                        self._execute_and_send(channel, cmd)
 
                     elif ch == b"\n":
                         # Also execute on newline (some clients send only \n)
                         if buf.strip():
-                            channel.send(b"\r\n")
+                            self._safe_send(channel, b"\r\n")
                             cmd = buf.decode("utf-8", errors="replace").strip()
                             buf = b""
 
                             if cmd.lower() in ("exit", "quit"):
-                                channel.send(b"Connection closed.\r\n")
+                                self._safe_send(channel, b"Connection closed.\r\n")
                                 channel.close()
                                 return
 
-                            try:
-                                output = self._cli.execute(cmd)
-                                if output:
-                                    channel.send((output + "\r\n").encode())
-                            except Exception as e:
-                                channel.send(f"% Error: {e}\r\n".encode())
-                                logger.error(f"[SSHServer] Shell error: {e}")
-
-                            channel.send(self._cli.prompt.encode())
+                            self._execute_and_send(channel, cmd)
 
                     elif ch == b"\x08" or ch == b"\x7f":
                         # Backspace
                         if buf:
                             buf = buf[:-1]
-                            channel.send(b"\x08 \x08")
+                            self._safe_send(channel, b"\x08 \x08")
 
                     elif ch == b"\x03":
                         # Ctrl+C — clear buffer
                         buf = b""
-                        channel.send(b"^C\r\n")
-                        channel.send(self._cli.prompt.encode())
+                        self._safe_send(channel, b"^C\r\n")
+                        self._safe_send(channel, self._cli.prompt)
 
                     else:
                         # Echo printable characters
                         if 32 <= byte[0] < 127:
                             buf += ch
-                            channel.send(ch)
+                            self._safe_send(channel, ch)
         except Exception as e:
             logger.error(f"[SSHServer] Shell loop error: {e}")
         finally:
@@ -615,6 +619,30 @@ class _SimulatorServerInterface(paramiko.ServerInterface):
                     channel.close()
             except Exception:
                 pass
+
+    def _safe_send(self, channel: paramiko.Channel, data) -> bool:
+        """Send data on the channel, catching exceptions. Returns True on success."""
+        try:
+            if isinstance(data, str):
+                data = data.encode()
+            if data and not channel.closed:
+                channel.send(data)
+            return True
+        except Exception as e:
+            logger.warning(f"[SSHServer] Shell send error: {e}")
+            return False
+
+    def _execute_and_send(self, channel: paramiko.Channel, cmd: str) -> None:
+        """Execute a CLI command and send the output + prompt, isolating errors."""
+        try:
+            output = self._cli.execute(cmd)
+            if output:
+                self._safe_send(channel, (output + "\r\n"))
+        except Exception as e:
+            self._safe_send(channel, f"% Error: {e}\r\n")
+            logger.error(f"[SSHServer] Shell exec error for '{cmd}': {e}")
+
+        self._safe_send(channel, self._cli.prompt)
 
 
 # ────────────────────────────────────────────────────

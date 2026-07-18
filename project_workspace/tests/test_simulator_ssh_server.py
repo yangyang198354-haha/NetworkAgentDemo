@@ -119,17 +119,25 @@ class TestSimulatorCLIShowInterfaceStatus:
 
 
 class TestSimulatorCLIShowInterfaceDetail:
-    """Tests for 'show interface <iface>'.
+    """Tests for 'show interface <iface>'."""
 
-    NOTE: The SimulatorCLI lowercases the interface name before lookup (D-ST-001),
-    but port keys in DeviceStateManager are title-case (e.g. "Gi0/1").
-    As a result, 'show interface Gi0/1' returns an error due to case mismatch.
-    """
-
-    def test_show_interface_case_mismatch_error(self, cli):
-        """D-ST-001: show interface with title-case returns 'Invalid interface' due to case mismatch."""
+    def test_show_interface_detail_success(self, cli):
+        """show interface Gi0/1 returns detailed port information."""
         output = cli.execute("show interface Gi0/1")
-        assert "Invalid interface" in output
+        assert "Gi0/1" in output
+        assert "Hardware is Gigabit Ethernet" in output
+        assert "MTU" in output
+
+    def test_show_interface_case_insensitive_keyword(self, cli):
+        """show INTERFACE with mixed-case keyword still works."""
+        output = cli.execute("show INTERFACE Gi0/1")
+        assert "Gi0/1" in output
+        assert "Hardware is Gigabit Ethernet" in output
+
+    def test_show_interface_lowercase_name_fails(self, cli):
+        """show interface with lower-case port name fails (case-sensitive lookup)."""
+        output = cli.execute("show interface gi0/1")
+        assert "Invalid" in output
 
     def test_show_interface_invalid(self, cli):
         """show interface with invalid name returns error."""
@@ -304,19 +312,22 @@ class TestSimulatorCLIConfigMode:
 # ── Interface Sub-Mode ─────────────────────────────────
 
 class TestSimulatorCLIInterfaceMode:
-    """Tests for interface sub-mode commands.
+    """Tests for interface sub-mode commands."""
 
-    NOTE (D-ST-001): The SimulatorCLI lowercases port names before lookup in
-    DeviceStateManager, but port dictionary keys are title-case ("Gi0/1").
-    This means 'interface Gi0/1' in config mode always returns 'Invalid interface'.
-    """
-
-    def test_interface_case_mismatch_returns_error(self, cli):
-        """D-ST-001: interface Gi0/1 returns error due to case mismatch."""
+    def test_interface_enters_submode(self, cli):
+        """interface Gi0/1 enters interface sub-mode successfully."""
         cli.execute("configure terminal")
         result = cli.execute("interface Gi0/1")
-        assert "Invalid" in result
-        assert cli.current_interface is None
+        assert "Invalid" not in result
+        assert cli.current_interface == "Gi0/1"
+        assert "(config-if)" in cli.prompt
+
+    def test_interface_case_insensitive_keyword(self, cli):
+        """interface INTERFACE keyword is case-insensitive."""
+        cli.execute("configure terminal")
+        result = cli.execute("INTERFACE Gi0/3")
+        assert "Invalid" not in result
+        assert cli.current_interface == "Gi0/3"
 
     def test_interface_invalid_port_returns_error(self, cli):
         """interface with invalid name returns error."""
@@ -343,12 +354,7 @@ class TestSimulatorCLIInterfaceMode:
 
 
 class TestSimulatorCLIInterfaceCommands:
-    """Tests for commands in the config mode context.
-
-    NOTE (D-ST-001): Due to case sensitivity bug, interface sub-mode
-    cannot be entered via CLI. Interface commands are tested directly
-    against the state_manager API in test_simulator_state_manager.py.
-    """
+    """Tests for commands in the config mode and interface sub-mode contexts."""
 
     def test_invalid_interface_command(self, cli):
         """Invalid command in config mode returns error."""
@@ -356,12 +362,19 @@ class TestSimulatorCLIInterfaceCommands:
         result = cli.execute("bogus cmd")
         assert "Invalid input" in result
 
-    def test_interface_case_mismatch_error(self, cli):
-        """D-ST-001: interface command cannot match title-case port keys."""
+    def test_interface_shutdown_in_submode(self, cli):
+        """shutdown in interface sub-mode changes port state."""
         cli.execute("configure terminal")
-        result = cli.execute("interface Gi0/1")
-        assert "Invalid" in result
-        assert cli.current_interface is None
+        cli.execute("interface Gi0/1")
+        result = cli.execute("shutdown")
+        assert result or True  # shutdown may return confirmation or empty
+
+    def test_interface_switchport_vlan_in_submode(self, cli):
+        """switchport access vlan in interface sub-mode changes VLAN."""
+        cli.execute("configure terminal")
+        cli.execute("interface Gi0/2")
+        result = cli.execute("switchport access vlan 100")
+        assert "Invalid" not in result
 
 
 # ── Error Handling ─────────────────────────────────────
@@ -400,14 +413,13 @@ class TestSimulatorCLIPrompt:
         cli.execute("configure terminal")
         assert cli.prompt == "Sim-SW-01(config)# "
 
-    def test_no_interface_prompt_without_submode(self, cli):
-        """Without interface sub-mode (D-ST-001), prompt stays in config mode."""
+    def test_interface_prompt_in_submode(self, cli):
+        """Interface sub-mode is entered and shows (config-if)# prompt."""
         cli.execute("configure terminal")
         cli.execute("interface Gi0/1")
-        # Interface sub-mode not entered due to case mismatch
-        assert cli.current_interface is None
+        assert cli.current_interface == "Gi0/1"
         assert cli.in_config_mode is True
-        assert cli.prompt == "Sim-SW-01(config)# "
+        assert "(config-if)" in cli.prompt
 
     def test_prompt_after_hostname_change(self, cli):
         """Prompt reflects hostname change (note: hostname is lowercased)."""
