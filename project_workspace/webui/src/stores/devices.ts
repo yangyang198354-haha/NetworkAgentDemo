@@ -81,7 +81,9 @@ export const useDevicesStore = defineStore('devices', () => {
   }
 
   async function configurePort(deviceId: number, portName: string, action: string, value?: string) {
-    const resp: any = await client.post(`/api/devices/${deviceId}/ports/${portName}/config`, {
+    // encodeURIComponent: port names contain "/" (e.g., "Gi0/1"), which must be
+    // escaped in the URL path so FastAPI correctly captures the full name.
+    const resp: any = await client.post(`/api/devices/${deviceId}/ports/${encodeURIComponent(portName)}/config`, {
       action,
       value: value || null,
     })
