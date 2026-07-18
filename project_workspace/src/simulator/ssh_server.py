@@ -608,7 +608,7 @@ class _SimulatorServerInterface(paramiko.ServerInterface):
 
                     else:
                         # Echo printable characters
-                        if 32 <= byte[0] < 127:
+                        if 32 <= byte < 127:
                             buf += ch
                             self._safe_send(channel, ch)
         except Exception as e:
