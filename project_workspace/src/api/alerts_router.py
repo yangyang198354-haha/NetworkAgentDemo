@@ -77,6 +77,8 @@ async def get_alert_detail(alert_id: str, db: Session = Depends(get_db)):
     # ★ MOD-DP-008: Read fix_plan and commands from workflow_state JSON column ★
     fix_plan = None
     commands = []
+    exec_log = []
+    verify_result = None
     wf_state = alert.workflow_state
     if wf_state:
         fp = wf_state.get("fix_plan")
@@ -87,6 +89,11 @@ async def get_alert_detail(alert_id: str, db: Session = Depends(get_db)):
                 "params": fp.get("params", {}),
             }
             commands = fp.get("commands", [])
+        # 暴露实际下发执行结果（逐命令 success）与结构化验证结果，供 E2E 断言
+        if isinstance(wf_state.get("exec_log"), list):
+            exec_log = wf_state["exec_log"]
+        if isinstance(wf_state.get("verify_result"), dict):
+            verify_result = wf_state["verify_result"]
 
     # ★ MOD-DP-008: Read approval from DB (ApprovalRepository) ★
     approval_info = None
@@ -145,6 +152,8 @@ async def get_alert_detail(alert_id: str, db: Session = Depends(get_db)):
         "timeline": timeline,
         "fix_plan": fix_plan,
         "commands": commands,
+        "exec_log": exec_log,
+        "verify_result": verify_result,
         "llm_calls": llm_calls,
         "approval": approval_info,
     }

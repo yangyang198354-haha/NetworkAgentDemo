@@ -170,6 +170,19 @@ def assert_commands_safe(commands: list) -> None:
     print(f"  [safe] 下发命令共 {len(commands)} 条，无 description/save/copy running-config")
 
 
+def assert_exec_log_success(exec_log: list, real_write: bool) -> None:
+    """断言实际下发的命令全部 success=true，杜绝「CLOSED 但命令全失败」的假通过。"""
+    if not real_write:
+        return
+    if not exec_log:
+        raise AssertionError("real-write 场景缺少 exec_log（未实际下发任何命令）")
+    failed = [r for r in exec_log if not r.get("success", False)]
+    if failed:
+        cmds = [r.get("command") for r in failed]
+        raise AssertionError(f"下发命令执行失败（success=false）: {cmds}")
+    print(f"  [safe] exec_log 共 {len(exec_log)} 条命令，全部 success=true")
+
+
 def assert_no_plaintext_switch_password(detail: dict) -> None:
     """断言告警详情/时间线中不含交换机明文密码泄漏。"""
     def _scan(obj, path="root"):
@@ -246,6 +259,20 @@ def run_scenario(cfg: E2EConfig, client: HttpClient) -> int:
     commands = (detail or {}).get("commands") or []
     assert_commands_safe(commands)
 
+    # ★ 实际下发执行结果断言（杜绝 success=false 的假通过）
+    exec_log = (detail or {}).get("exec_log") or []
+    assert_exec_log_success(exec_log, cfg.real_write)
+
+    # 结构化验证结果（Link 状态在无线上端口上无法反映 admin 变化，仅告警不判失败）
+    verify_result = (detail or {}).get("verify_result")
+    if verify_result is not None:
+        passed = verify_result.get("verify_passed", False)
+        note = verify_result.get("comparison_notes", "")
+        if passed:
+            print("  [verify] verify_passed=true")
+        else:
+            print(f"  [warn] verify_passed=false（Link 状态无法反映 admin 变化）: {note}")
+
     # 明文凭据泄漏断言
     assert_no_plaintext_switch_password(detail or {})
 
@@ -293,6 +320,26 @@ def dry_run_selfcheck(cfg: E2EConfig) -> int:
         print("  [safe] copy running-config 被正确拦截（预期）")
     else:
         print("  [FAIL] copy running-config 未被拦截")
+        return 1
+
+    # exec_log 成功断言逻辑自检
+    assert_exec_log_success(
+        [{"command": "interface gigabitEthernet 1/0/2", "success": True},
+         {"command": "shutdown", "success": True}], real_write=True)
+    try:
+        assert_exec_log_success(
+            [{"command": "shutdown", "success": False}], real_write=True)
+    except AssertionError:
+        print("  [safe] exec_log success=false 被正确拦截（预期）")
+    else:
+        print("  [FAIL] exec_log success=false 未被拦截")
+        return 1
+    try:
+        assert_exec_log_success([], real_write=True)
+    except AssertionError:
+        print("  [safe] exec_log 为空被正确拦截（预期）")
+    else:
+        print("  [FAIL] exec_log 为空未被拦截")
         return 1
 
     print("  [PASS] dry-run 自检通过（语法/配置/安全断言逻辑）")
