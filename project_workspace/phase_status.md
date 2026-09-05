@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phase_status project_name="NetworkAgentDemo" flow_mode="PARTIAL_FLOW" last_updated="2026-09-05T03:10:00Z">
+<phase_status project_name="NetworkAgentDemo" flow_mode="PARTIAL_FLOW" last_updated="2026-09-05T23:20:00Z">
   <file_header>
     <file_path>project_workspace/NetworkAgentDemo/phase_status.md</file_path>
     <file_type>STATUS_TRACKING</file_type>
@@ -592,6 +592,11 @@
     <log time="2026-09-05T05:55:00Z" state="PM_ESCALATE_USER" action="WRITE_E2E_AUTHORIZATION_RECEIVED" result="AUTHORIZED" trace_id="NetworkAgentDemo-REAL_E2E" note="用户授权对真实交换机 Gi1/0/2 执行可逆写操作 E2E（no shutdown + shutdown，不 save），进入 GROUP_D 全量测试"/>
     <log time="2026-09-05T05:56:00Z" state="PM_INVOKE_AGENT" action="SUB_AGENT_INVOKED" result="SUCCESS" invocation_id="inv-real-e2e-d-001" agent_id="sub_agent_test_engineer" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_D 测试验证委派 test_engineer"/>
     <log time="2026-09-05T06:40:00Z" state="PM_GATE_REVIEW" action="GATE_REVIEW_COMPLETED" result="PASS_WITH_CONDITIONS" review_id="gate-real-e2e-d-001" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_D 单元 36/36 100%、集成 17/17 100%、回归 540/1 零回归；FND-M2 已修；E2E 真实写推迟 GROUP_E（用户已授权 Gi1/0/2）"/>
+    <log time="2026-09-05T22:00:00Z" state="PM_FIX_DEFECT" action="ROOT_CAUSE_FIXED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="交换机 SSH 固件级缺陷定级：切 TELNET 通道（FRP tplink-telnet 6023）；修接口名翻译 925f7a7（Gi1/0/2 → gigabitEthernet 1/0/2）；修命令分会话 f3adc92（interface+action 单会话批量）"/>
+    <log time="2026-09-05T22:53:00Z" state="PM_FIX_DEFECT" action="ROOT_CAUSE_FIXED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="假通过加固 f220875：告警详情端点暴露 exec_log/verify_result，E2E 新增 assert_exec_log_success 硬断言（--real-write 下命令全 success=true 才判过）"/>
+    <log time="2026-09-05T23:05:00Z" state="PM_DEPLOY" action="DEPLOYMENT_COMPLETED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="VPS 部署 f220875 完成（github.com:443 自 VPS 不可达，改用 SFTP 直传 2 文件 + py_compile + systemctl restart + /health healthy v0.2.0）"/>
+    <log time="2026-09-05T23:20:00Z" state="PM_RUN_E2E" action="E2E_REAL_WRITE_PASSED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="真实写 E2E TRUE PASS：PORT_SHUTDOWN(499eeaa5)/PORT_DOWN(cb0f7d00) 均 CLOSED，exec_log 各 2 命令 success=true，无持久化命令，无明文凭据泄漏，exit 0"/>
+    <log time="2026-09-05T23:20:00Z" state="PM_GATE_REVIEW" action="GATE_REVIEW_COMPLETED" result="PASS" review_id="gate-real-e2e-e-001" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_E 门控 PASS；遗留：verify 用 Link 状态无法反映无线上端口 admin 变化，转后续迭代"/>
   </audit_log>
 
   <!-- ============================================================ -->
@@ -2012,6 +2017,46 @@
         </findings>
         <completed_at>2026-09-05T06:40:00Z</completed_at>
         <note>GROUP_RE_D 测试验证，门控 PASS_WITH_CONDITIONS。单元 100%/集成 100%/回归 540/1 均通过，零生产缺陷，FND-M2 已修。唯一条件：E2E 真实写闭环推迟至 GROUP_E 部署后执行（用户已授权）。进入 GROUP_E 部署交付</note>
+      </gate_review>
+    </phase_group>
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RE_E: 真实设备端到端部署交付                            -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RE_E" name="真实设备端到端部署交付" responsible_agent="sub_agent_devops_engineer">
+      <phase id="PHASE_RE_10" name="CI/CD 流水线">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T17:40:00Z</started_at>
+        <completed_at>2026-09-05T18:00:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/deployment/cicd_pipeline.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RE_11" name="部署计划与部署报告">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T18:00:00Z</started_at>
+        <completed_at>2026-09-05T19:00:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/deployment/deployment_plan.md" status="APPROVED"/>
+          <file path="real_device_e2e/deployment/real_device_e2e_deployment_report.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-real-e2e-e-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="RESOLVED">条件1（原 SSH 阻塞项）：交换机 SSH 为固件级缺陷（TL-SG5428 1.1.3 对 DSA/旧算法握手即断），已切换 TELNET 通道（VPS FRP tplink-telnet 6023 → 192.168.31.220:23）；resolve_real_access/连接协议改为 TELNET 后真实写 E2E 全程打通</finding>
+          <finding severity="RESOLVED">接口名翻译缺陷：TP-Link CLI 短名 Gi1/0/2 在 config 模式需全名 gigabitEthernet 1/0/2；新增 _tp_link_full_port_name + _normalize_tp_link_commands（commit 925f7a7），interface 命令不再报 "Invalid parameter"</finding>
+          <finding severity="RESOLVED">命令分会话缺陷：interface + shutdown/no shutdown 曾逐条分会话下发导致动作命令失败；改为 configure_records/run_records 单会话批量下发（commit f3adc92），两命令均 success=true</finding>
+          <finding severity="RESOLVED">假通过加固：告警详情端点暴露 exec_log/verify_result，E2E 新增 assert_exec_log_success 硬断言（commit f220875），杜绝「CLOSED 但命令全失败」假通过</finding>
+          <finding severity="INFO">生产部署：VPS 47.109.197.217 已运行 f220875（925f7a7 + f3adc92 已前置部署；f220875 因 VPS 无法连 github.com:443 改用 SFTP 直传 2 文件），py_compile 通过、systemctl restart networkagent active、/health healthy v0.2.0</finding>
+          <finding severity="INFO">真实写 E2E 结果（硬化后断言）：PORT_SHUTDOWN（alert 499eeaa5）与 PORT_DOWN（alert cb0f7d00）均 CLOSED，exec_log 各 2 条命令全部 success=true，无 description/save/copy running-config，无明文交换机凭据泄漏，exit 0</finding>
+          <finding severity="INFO">已知遗留（非阻塞、已记录）：verify_passed 恒为 false——Gi1/0/2 无网线，show interface status 的 Link 状态无法反映 admin-state 变化（before=down after=down），需后续用 show running-config 判 admin 状态；TERMINAL_STATUSES 枚举串问题已被 b3944c5（status 存明文串）覆盖</finding>
+        </findings>
+        <completed_at>2026-09-05T23:20:00Z</completed_at>
+        <note>GROUP_RE_E 部署交付，门控 PASS。真实写 E2E 由 SSH 阻塞转为 TRUE PASS：切 TELNET + 修接口名翻译 + 修命令分会话 + 假通过加固，两场景（PORT_SHUTDOWN/PORT_DOWN）在真实 TL-SG5428 上命令全部 success=true 且 CLOSED。遗留：verify 用 Link 状态无法反映无线上端口的 admin 变化，转后续迭代</note>
       </gate_review>
     </phase_group>
 
