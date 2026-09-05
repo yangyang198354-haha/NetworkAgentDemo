@@ -1750,13 +1750,14 @@
         </output_files>
       </phase>
       <phase id="PHASE_RP_09" name="真实设备面板端到端测试">
-        <status>NOT_EXECUTED</status>
-        <retry_count>0</retry_count>
+        <status>APPROVED</status>
+        <retry_count>1</retry_count>
         <started_at>2026-09-05T02:50:00Z</started_at>
-        <completed_at>2026-09-05T03:05:00Z</completed_at>
+        <completed_at>2026-09-05T07:00:00Z</completed_at>
         <output_files>
-          <file path="real_device_panel/testing/real_panel_e2e_test_report.md" status="NOT_EXECUTED"/>
+          <file path="real_device_panel/testing/real_panel_e2e_test_report.md" status="APPROVED"/>
         </output_files>
+        <note>部署后经 FRP 隧道连真实 TL-SG5428 完成读端点 E2E 验收（HTTP 200 完整快照）；暴露并修复 3 个解析缺陷（内存仅百分比/端口无 VLAN 列/分页尾行），提交 ea699bd 复验通过。端口写回归未执行（需单独授权）。</note>
       </phase>
       <gate_review>
         <review_id>gate-rp-d-001</review_id>
@@ -1764,7 +1765,7 @@
         <findings>
           <finding severity="INFO">单元测试 66/66 pass（100.00%，另 1 xfail 不计分母）≥ 80% 门控 PASSED；覆盖率 99%（243 stmts, 3 miss）</finding>
           <finding severity="INFO">集成测试 15/15 pass（100.00%）≥ 90% 门控 PASSED；metrics 算术一致</finding>
-          <finding severity="INFO">E2E NOT_EXECUTED（本环境无真实 TL-SG5428 设备，未虚构通过率）</finding>
+          <finding severity="INFO">E2E NOT_EXECUTED（本环境无真实 TL-SG5428 设备，未虚构通过率）——后续（部署后）已连真实交换机执行并通过（见 PHASE_RP_09 note）</finding>
           <finding severity="INFO">19/19 AC 全覆盖；写操作安全三项验收通过：前端二次确认 + 后端审计（operator=current_user.username，detail 无明文密码）+ configure 不调 save（AC-RP-005-03）</finding>
           <finding severity="INFO">回归 484 passed / 1 xfailed / 0 failed，SIMULATOR/心跳/连通性零破坏（NFUNC-003）；前端 npm run build 0 错误</finding>
           <finding severity="MINOR">遗留 KNOWN-LIMITATION/ENV-GAP：FND-001（端口 vlan/speed 真实输出校准）、FND-002（畸形行 unknown）、FND-003（工作流 FRP key 对齐）、FND-006（parse_system_info 标签校准）与真实设备 E2E 采集/写回归，需真实设备校准，转 GROUP_E 列为交付遗留问题</finding>
@@ -1787,14 +1788,15 @@
         </output_files>
       </phase>
       <phase id="PHASE_RP_11" name="真实设备面板部署计划与部署报告">
-        <status>DEPLOYMENT_PENDING</status>
-        <retry_count>0</retry_count>
+        <status>APPROVED</status>
+        <retry_count>1</retry_count>
         <started_at>2026-09-05T03:15:00Z</started_at>
-        <completed_at></completed_at>
+        <completed_at>2026-09-05T07:00:00Z</completed_at>
         <output_files>
           <file path="real_device_panel/deployment/real_panel_deployment_plan.md" status="APPROVED"/>
-          <file path="real_device_panel/deployment/real_panel_deployment_report.md" status="NOT_CREATED"/>
+          <file path="real_device_panel/deployment/real_panel_deployment_report.md" status="APPROVED"/>
         </output_files>
+        <note>部署已执行（SSH 密钥免密）：git reset --hard ea699bd → npm build → py_compile/import → 重启 active → /health 200 v0.2.0；部署后真实交换机 E2E 通过。详见 deployment_report.md。</note>
       </phase>
       <gate_review>
         <review_id>gate-rp-e-001</review_id>
@@ -1804,7 +1806,7 @@
           <finding severity="INFO">部署后验证清单 V1~V17 完整，其中 V10~V13 为写操作安全硬性检查（前端二次确认 + AuditLogger CONFIG_CHANGE + 不调 save/copy running-config + detail 无明文密码）</finding>
           <finding severity="INFO">安全红线明确：禁 pkill -f gunicorn、禁触 80/8000 端口、仅操作 networkagent.service 与 8001、强制 python3.11、真实端口写操作不擅自执行</finding>
           <finding severity="INFO">CI/CD 流水线 9 阶段锚定 CLAUDE.md CI 命令（STAGE-05 全量回归排除 6 个 e2e 文件 + -k "not slow"），STAGE-08 生产部署被 PRODUCTION_DEPLOY_CONFIRM=true + 真实设备 E2E 双重门控拦截</finding>
-          <finding severity="WARNING">生产部署执行未授权：PRECHK-08（E2E=NOT_EXECUTED）与 PRECHK-09（未收到 PRODUCTION_DEPLOY_CONFIRM=true）未满足，deployment_report=NOT_CREATED/DEPLOYMENT_PENDING；停在 PM_AWAIT_DEPLOY_CONFIRM 等待用户明确授权，授权后由 devops 执行 STAGE-08 并生成 deployment_report 再做执行级门控</finding>
+          <finding severity="INFO">生产部署已授权并执行完成（PM 已 CONFIRM 部署 + 部署后连真实交换机验收）：git reset --hard ea699bd → npm build → py_compile/import → 重启 active → /health 200 v0.2.0；deployment_report=COMPLETED；真实交换机读端点 E2E 通过（HTTP 200）。真实端口写回归仍待用户单独授权。</finding>
         </findings>
         <completed_at>2026-09-05T03:20:00Z</completed_at>
       </gate_review>

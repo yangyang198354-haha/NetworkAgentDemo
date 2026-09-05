@@ -3,13 +3,13 @@
   <module_id>real_device_panel</module_id>
   <doc_type>e2e_test_report</doc_type>
   <file_name>real_panel_e2e_test_report.md</file_name>
-  <version>0.1.0</version>
-  <status>NOT_EXECUTED</status>
+  <version>0.2.0</version>
+  <status>EXECUTED</status>
   <author_agent>sub_agent_test_engineer</author_agent>
   <created_at>2026-09-05T00:00:00Z</created_at>
-  <last_updated>2026-09-05T00:00:00Z</last_updated>
-  <invocation_id>inv-real-panel-d-001</invocation_id>
-  <input_source>PM agent_invocation — REAL_DEVICE_PANEL / GROUP_RP_D（E2E 阶段）</input_source>
+  <last_updated>2026-09-05T07:00:00Z</last_updated>
+  <invocation_id>inv-real-panel-d-002</invocation_id>
+  <input_source>PM agent_invocation — REAL_DEVICE_PANEL / GROUP_RP_D（部署后真实交换机 E2E 验收）</input_source>
 </file_header>
 
 # 真实设备（REAL）面板 — E2E 测试报告
@@ -18,48 +18,63 @@
 
 | 指标 | 数值 |
 |------|------|
-| Total | 0 |
-| Pass | 0 |
-| Fail | 0 |
-| Skip | 0 |
-| Blocked | 0 |
-| **执行状态** | **NOT_EXECUTED** |
+| 真实采集（读端点） | 1/1 PASS |
+| 端口写回归（shutdown/no shutdown） | 0/0（未授权执行，NOT_EXECUTED） |
+| 前端构建 | PASS（0 错误） |
+| **执行状态** | **EXECUTED** |
 
-- 前置门控：单元 100.00%（≥80%）、集成 100.00%（≥90%）均通过，具备进入 E2E 的资格。
-- 结论：**本环境无真实 TL-SG5428 设备接入，E2E 真实采集与端口写回归未执行（NOT_EXECUTED），
-  不虚构任何通过率。**
+- 前置门控：单元 100.00%（≥80%）、集成 100.00%（≥90%）通过。
+- 结论：**在部署后生产环境（47.109.197.217）经 FRP 隧道连真实 TL-SG5428 完成读端点 E2E 验收，
+  `GET /api/devices/3/real_panel` 返回 HTTP 200 完整快照。端口写回归本轮未执行（需用户单独授权）。**
 
-## 2. NOT_EXECUTED 原因说明
+## 2. 执行环境
 
-1. **无真实设备可达**：`GROUP_RP_C` 代码评审报告明确「本会话无真实 TL-SG5428 设备接入」；
-   本测试会话同样未配置/授权对生产交换机的真实连接。
-2. **安全边界**：REAL 面板端口写操作是**对生产设备的写操作**（Q-RP-02 高风险决策），
-   在无明确授权与可达真实设备的情况下，禁止由测试代理发起真实 `shutdown`/`no shutdown`
-   命令或 `show interface status` 采集，避免误操作生产网络设备。
-3. **未验证项清单**（需在具备真实设备/授权环境补做）：
-   - FND-001 / FND-006：`show interface status` / `show system-info` 真实输出格式的
-     vlan/speed/标签字段校准。
-   - FND-005：`configure()` 的 executed/failed 语义在真实会话回显异常下的 success 判定校准。
-   - 真实设备端口写回归：`configure → interface <name> → shutdown/no shutdown → exit`
-     退出层级（单次 `exit` 是否回到 enable 模式）。
-   - 真实 `show cpu-utilization` / `show memory-utilization` 输出格式校准。
-   - `check_connectivity` 返回的 `device_model` / `software_version` 与 `show system-info`
-     解析结果的一致性（AC-RP-004-01）。
+| 项 | 值 |
+|----|----|
+| 后端 | 47.109.197.217:8001（`networkagent.service`，v0.2.0） |
+| 真实设备 | TL-SG5428（device_id=3），SSH 经 FRP 隧道 127.0.0.1:6022 → 192.168.31.220 |
+| 采集路径 | `DeviceToolSession` 单会话批量采集（ADR-RP-003 会话串行化） |
+| 版本 | 提交 `ea699bd`（含 3 个解析缺陷修复） |
 
-## 3. Critical Path 覆盖率
+## 3. 读端点 E2E 结果（真实采集）
 
-- 关键路径（Must Have 故事的 E2E 用例）：因无真实设备，**未执行，覆盖率为 N/A**。
-- 声明：不将「未执行」标记为 PASS；本节如实记录为 NOT_EXECUTED。
+`GET /api/devices/3/real_panel` → **HTTP 200**
 
-## 4. 前端构建验证（替代性验证，已执行）
+| 区块 | 断言 | 结果 |
+|------|------|------|
+| ports | 22 端口，Gi1/0/1 `up`/`speed=1000M`，其余 `down`；vlan 空（真实无 VLAN 列） | ✅ PASS |
+| cpu | `cpu_5s=9.0`（真实百分比） | ✅ PASS |
+| memory | `usage_pct=80.0`，`used_mb/total_mb=null`（仅百分比降级，不抛错） | ✅ PASS |
+| io | `supported=false`（降级占位，ADR-RP-002） | ✅ PASS |
+| info | device_name=TL-SG5428 / model=TL-SG5428 / hardware=TL-SG5428 2.0 / software=1.1.3 Build 20170926 | ✅ PASS |
+
+## 4. E2E 暴露并修复的缺陷（回归记录）
+
+| 缺陷 | 现象 | 修复 | 状态 |
+|------|------|------|------|
+| 内存解析 502 | `show memory-utilization` 仅返回 `80%`，面板 502 | 仅百分比降级路径 + Optional used/total | ✅ 已修复复验 |
+| 端口 VLAN 误配 | 无 VLAN 列时 `1000M` 被当 VLAN | `real_speed_fmt` 列式分支 | ✅ 已修复复验 |
+| 分页尾行误判 | `Press any key to continue` 被解析为端口 | `_PAGER_RE` 跳过 | ✅ 已修复复验 |
+
+单测：`tests/test_real_panel_parsers.py` 44 例（含新增 3 例）；全量回归 487 passed / 1 xfailed / 0 failed。
+
+## 5. 未执行项（需单独授权）
+
+- **真实端口写回归**：`configure → interface <name> → shutdown/no shutdown → exit` 未执行。
+  对生产设备的写操作需用户明确授权 + 指定测试端口，本轮仅完成读端点验收与写操作安全专项静态核对（V10~V13）。
+- **IO 采集**：无已验证 IO CLI 命令，维持 `supported=false` 降级占位（ADR-RP-002）。
+
+## 6. Critical Path 覆盖率
+
+- 关键路径（Must Have 故事）读端点用例：**1/1 通过**（真实采集快照）。
+- 写操作关键路径：安全专项以静态核对 + 单测覆盖，未执行真实写（如实标注）。
+
+## 7. 前端构建验证
 
 | 项 | 结果 |
 |----|------|
-| `npm run build`（`webui/`） | **成功**，9.43s，0 错误 |
-| 构建告警 | 仅 chunk 体积 >500kB 提示（vendor-element / vendor-echarts），为既存告警，非错误 |
-| DevicesListView 产物 | `assets/DevicesListView-DUYL9AB7.js`（21.18 kB）正常生成 |
+| `npm run build` | 成功（18.19s，0 错误） |
+| DevicesListView 产物 | `assets/DevicesListView-BdmcUF8G.js`（21.26 kB）正常生成 |
+| REAL 面板内存展示 | 无 MB 分解时回退「使用率 80%（设备未提供 MB 分解）」 |
 
-> 说明：前端无组件级测试基建，REAL 面板抽屉/二次确认/IO 降级等前端 AC 以静态代码核对 +
-> 构建零错误覆盖（见测试计划 5 节映射矩阵），此结论已如实标注，不冒充自动化 E2E。
-
-*文档版本 0.1.0 | 状态 DRAFT | 作者 sub_agent_test_engineer | invocation inv-real-panel-d-001*
+*文档版本 0.2.0 | 状态 EXECUTED | 作者 sub_agent_test_engineer | invocation inv-real-panel-d-002*
