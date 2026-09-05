@@ -201,23 +201,9 @@ async def simulate_alert(
     from src.models.alert import Alert, DeviceInfo
     from src.models.enums import AlertSeverity, AlertSource
 
-    descriptions = {
-        AlertType.MAC_FLAPPING: (
-            f"MAC地址 00:1A:2B:3C:4D:5E 在设备 {body.device_name} 的VLAN 1内发生漂移"
-        ),
-        AlertType.PORT_DOWN: (
-            f"接口 {body.interface or 'Gi0/1'} 在设备 {body.device_name} 上状态变更为 down"
-        ),
-        AlertType.CPU_HIGH: (
-            f"设备 {body.device_name} 的CPU利用率在5秒内达到92%，超过告警阈值80%"
-        ),
-        AlertType.PORT_SHUTDOWN: (
-            f"接口 {body.interface or 'Gi0/1'} 在设备 {body.device_name} 上检测到安全威胁，需要紧急隔离关闭"
-        ),
-    }
-
-    # G1: Look up device_type from DB for SIMULATOR devices
+    # G1: Look up device_type + metadata from DB (ADR-RE-007: REAL 回填真实型号/地址/端口)
     device_type = "MOCK"
+    matched_device = None
     try:
         from src.database.repositories.device_repository import DeviceRepository
         device_repo = DeviceRepository(db)
@@ -225,9 +211,36 @@ async def simulate_alert(
         for d in existing:
             if d.device_name == body.device_name:
                 device_type = d.device_type or "MOCK"
+                matched_device = d
                 break
     except Exception:
         pass
+
+    # ADR-RE-007: REAL 回填真实元数据（调用侧显式传参优先）
+    device_model = "TP-Link T2600G-28TS"
+    device_ip = body.device_ip
+    interface_name = body.interface
+    if device_type == "REAL" and matched_device is not None:
+        device_model = matched_device.device_model or "TL-SG5428"
+        if not device_ip or device_ip == "192.168.1.1":
+            device_ip = matched_device.device_ip or device_ip
+        if not interface_name or interface_name == "Gi0/1":
+            interface_name = "Gi1/0/2"
+
+    descriptions = {
+        AlertType.MAC_FLAPPING: (
+            f"MAC地址 00:1A:2B:3C:4D:5E 在设备 {body.device_name} 的VLAN 1内发生漂移"
+        ),
+        AlertType.PORT_DOWN: (
+            f"接口 {interface_name or 'Gi0/1'} 在设备 {body.device_name} 上状态变更为 down"
+        ),
+        AlertType.CPU_HIGH: (
+            f"设备 {body.device_name} 的CPU利用率在5秒内达到92%，超过告警阈值80%"
+        ),
+        AlertType.PORT_SHUTDOWN: (
+            f"接口 {interface_name or 'Gi0/1'} 在设备 {body.device_name} 上检测到安全威胁，需要紧急隔离关闭"
+        ),
+    }
 
     alert = Alert(
         alert_type=atype,
@@ -235,9 +248,9 @@ async def simulate_alert(
         alert_content=descriptions.get(atype, f"Simulated {body.alert_type} alert on {body.device_name}"),
         device_info=DeviceInfo(
             device_name=body.device_name,
-            device_ip=body.device_ip,
-            device_model="TP-Link T2600G-28TS",
-            interface_name=body.interface,
+            device_ip=device_ip,
+            device_model=device_model,
+            interface_name=interface_name,
             mac_address=body.mac_address,
             cpu_percent=body.cpu_percent,
             device_type=device_type,

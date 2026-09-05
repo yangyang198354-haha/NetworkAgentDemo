@@ -4,11 +4,9 @@ alert_type: PORT_DOWN
 risk_level: MEDIUM
 params_schema:
   iface_name: string
-  desc: string
 risk_hints:
   - "no shutdown 操作属于高风险操作（可能恢复意外断开的端口）"
   - "建议在执行前确认该端口关闭原因非人为维护"
 template: |
   interface {{ iface_name }}
    no shutdown
-   description {{ desc }}

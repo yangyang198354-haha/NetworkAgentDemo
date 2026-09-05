@@ -190,8 +190,10 @@ class TestAlertDetailNewFields:
         resp = retry_get(client,
             api_url(f"/api/alerts/{_DETAIL_ALERT_ID}"), hdr)
         cmds = resp.json().get("commands", [])
-        assert len(cmds) == 3
+        # FND-M2: PORT_DOWN 模板已去 description 行，渲染命令由 3 条降为 2 条
+        assert len(cmds) == 2
         assert any("no shutdown" in c for c in cmds)
+        assert not any("description" in c.lower() for c in cmds)
 
     def test_has_llm_calls(self, client, hdr):
         resp = retry_get(client,
@@ -382,8 +384,8 @@ class TestFixVerifications:
         assert len(data.get("timeline", [])) >= 10, "Timeline should have >=10 entries"
         # Verify fix_plan
         assert data.get("fix_plan") is not None
-        # Verify commands
-        assert len(data.get("commands", [])) == 3
+        # Verify commands (FND-M2: description 行已移除，2 条命令)
+        assert len(data.get("commands", [])) == 2
         # Verify approval: not needed
         app = data.get("approval") or {}
         assert app.get("need_human_approval") == False

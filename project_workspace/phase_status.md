@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phase_status project_name="NetworkAgentDemo" flow_mode="PARTIAL_FLOW" last_updated="2026-07-13T04:00:00Z">
+<phase_status project_name="NetworkAgentDemo" flow_mode="PARTIAL_FLOW" last_updated="2026-09-05T03:10:00Z">
   <file_header>
     <file_path>project_workspace/NetworkAgentDemo/phase_status.md</file_path>
     <file_type>STATUS_TRACKING</file_type>
@@ -580,6 +580,18 @@
     <log time="2026-07-12T03:35:00Z" state="PM_INVOKE_AGENT" action="SUB_AGENT_INVOKED" result="SUCCESS" invocation_id="inv-v2-group-e-002" agent_id="sub_agent_devops_engineer" trace_id="NetworkAgentDemo-V2" note="DEPLOY-001~015 全部成功，v0.2.0 运行于 47.109.197.217:8001，/health 确认版本 0.2.0"/>
     <log time="2026-07-12T04:00:00Z" state="PM_GATE_REVIEW" action="GATE_REVIEW_COMPLETED" result="PASS" review_id="gate-v2-group-e-001" trace_id="NetworkAgentDemo-V2" note="部署完成；每步有回滚；GenPlatform 80/8000 未受影响"/>
     <log time="2026-07-12T04:05:00Z" state="PM_DELIVERY_REPORT" action="DELIVERY_REPORT_GENERATED" result="SUCCESS" trace_id="NetworkAgentDemo-V2" note="v0.2.0 FULL_FLOW 全部完成"/>
+    <log time="2026-09-05T03:10:00Z" state="PM_GATE_REVIEW" action="CONDITIONS_CLEARED" result="PASS" review_id="gate-real-e2e-a-001" trace_id="NetworkAgentDemo-REAL_E2E" note="Q-RE-01/02/03 用户确认 RESOLVED，PHASE_RE_01/02 APPROVED，RISK-RE-01（CPU/MAC 可行性）转 GROUP_B 核实"/>
+    <log time="2026-09-05T03:15:00Z" state="PM_INVOKE_AGENT" action="SUB_AGENT_INVOKED" result="IN_PROGRESS" invocation_id="inv-real-e2e-b-001" agent_id="sub_agent_system_architect" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_B Step2 架构设计委派 system_architect"/>
+    <log time="2026-09-05T03:15:00Z" state="PM_ESCALATE_USER" action="PROBE_BLOCKED_PERMISSION_DENIED" result="BLOCKED" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_B Step1 CPU/MAC 只读探测被权限系统拦截：连生产交换机(192.168.31.220 via VPS 47.109.197.217/FRP 6022)需用户本人显式授权点名生产目标，协调器转述不满足授权门槛"/>
+    <log time="2026-09-05T04:10:00Z" state="PM_GATE_REVIEW" action="GATE_REVIEW_COMPLETED" result="PASS_WITH_CONDITIONS" review_id="gate-real-e2e-b-001" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_B 架构 7 ADR/100%覆盖/无循环/类型化 IFC 通过；条件1 CPU/MAC 探测待用户授权、条件2 DSA 会话链、条件3 CPU 阈值"/>
+    <log time="2026-09-05T04:30:00Z" state="PM_ESCALATE_USER" action="PROBE_AUTHORIZATION_RECEIVED" result="AUTHORIZED" trace_id="NetworkAgentDemo-REAL_E2E" note="用户显式授权只读探测（点名 192.168.31.220 via VPS 47.109.197.217 / FRP 127.0.0.1:6022，仅 ?/show 帮助类命令）；同时授权通过架构门控进入 GROUP_C"/>
+    <log time="2026-09-05T04:35:00Z" state="PM_RUN_PROBE" action="READ_ONLY_PROBE_COMPLETED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="探测结论：TL-SG5428 无 port-security / 无 CoPP / 无 storm-control / 无 CPU 保护命令；show mac address-table（空格版）可用。CPU_HIGH/MAC_FLAPPING 定稿 DEGRADED，PORT_DOWN/PORT_SHUTDOWN FIXABLE"/>
+    <log time="2026-09-05T04:40:00Z" state="PM_GATE_REVIEW" action="CONDITIONS_CLEARED" result="PASS" review_id="gate-real-e2e-b-001" trace_id="NetworkAgentDemo-REAL_E2E" note="条件1 RISK-RE-01 已 RESOLVED（探测完成），门控 PASS；用户确认进入 GROUP_RE_C 编码"/>
+    <log time="2026-09-05T04:41:00Z" state="PM_INVOKE_AGENT" action="SUB_AGENT_INVOKED" result="SUCCESS" invocation_id="inv-real-e2e-c-001" agent_id="sub_agent_software_developer" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_C 编码实现委派 software_developer（7 ADR 落地，硬约束：MOCK/SIMULATOR 零回归、零新依赖、禁 admin123 兜底）"/>
+    <log time="2026-09-05T05:50:00Z" state="PM_GATE_REVIEW" action="GATE_REVIEW_COMPLETED" result="PASS" review_id="gate-real-e2e-c-001" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_C 编码完成：4 文件 +640/-73，7 ADR 全落地，487 passed/1 xfailed 零回归；2 CRITICAL 同轮修复；2 MAJOR（工具层 DSA、e2e 断言）DOCUMENTED 转后续"/>
+    <log time="2026-09-05T05:55:00Z" state="PM_ESCALATE_USER" action="WRITE_E2E_AUTHORIZATION_RECEIVED" result="AUTHORIZED" trace_id="NetworkAgentDemo-REAL_E2E" note="用户授权对真实交换机 Gi1/0/2 执行可逆写操作 E2E（no shutdown + shutdown，不 save），进入 GROUP_D 全量测试"/>
+    <log time="2026-09-05T05:56:00Z" state="PM_INVOKE_AGENT" action="SUB_AGENT_INVOKED" result="SUCCESS" invocation_id="inv-real-e2e-d-001" agent_id="sub_agent_test_engineer" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_D 测试验证委派 test_engineer"/>
+    <log time="2026-09-05T06:40:00Z" state="PM_GATE_REVIEW" action="GATE_REVIEW_COMPLETED" result="PASS_WITH_CONDITIONS" review_id="gate-real-e2e-d-001" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_D 单元 36/36 100%、集成 17/17 100%、回归 540/1 零回归；FND-M2 已修；E2E 真实写推迟 GROUP_E（用户已授权 Gi1/0/2）"/>
   </audit_log>
 
   <!-- ============================================================ -->
@@ -1809,6 +1821,197 @@
           <finding severity="INFO">生产部署已授权并执行完成（PM 已 CONFIRM 部署 + 部署后连真实交换机验收）：git reset --hard ea699bd → npm build → py_compile/import → 重启 active → /health 200 v0.2.0；deployment_report=COMPLETED；真实交换机读端点 E2E 通过（HTTP 200）。真实端口写回归仍待用户单独授权。</finding>
         </findings>
         <completed_at>2026-09-05T03:20:00Z</completed_at>
+      </gate_review>
+    </phase_group>
+
+  </partial_flow>
+
+  <!-- ============================================================ -->
+  <!-- PARTIAL_FLOW: 真实设备（REAL）端到端工作流                     -->
+  <!-- flow_mode=PARTIAL_FLOW, 从 GROUP_RE_A 开始                    -->
+  <!-- 基于 v0.2.0 已部署版本 + real_device_panel 已交付             -->
+  <!-- 目标：把 MOCK/SIMULATOR E2E 场景在 REAL TL-SG5428 上调通       -->
+  <!-- 本次仅执行需求分析 GROUP_RE_A，停于需求门控等待用户确认        -->
+  <!-- ============================================================ -->
+  <partial_flow id="REAL_DEVICE_E2E" name="真实设备端到端工作流" flow_mode="PARTIAL_FLOW" start_group="GROUP_RE_A">
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RE_A: 真实设备端到端需求分析                            -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RE_A" name="真实设备端到端需求分析" responsible_agent="sub_agent_requirement_analyst">
+      <phase id="PHASE_RE_01" name="真实设备端到端需求规格说明书">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:55:00Z</started_at>
+        <completed_at>2026-09-05T03:00:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/requirements/real_device_e2e_requirements_spec.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RE_02" name="真实设备端到端用户故事清单">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:55:00Z</started_at>
+        <completed_at>2026-09-05T03:00:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/requirements/real_device_e2e_user_stories.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-real-e2e-a-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="INFO">8 REQ-RE-FUNC + 4 REQ-RE-NFUNC 全部有来源引用（用户需求原文或现有代码行号），[INFERRED]=0（不确定项全部收敛进 Q-RE 开放问题，不进入需求正文）</finding>
+          <finding severity="INFO">8 US-RE + 17 组 AC，100% Given/When/Then 格式，需求覆盖率 8/8（100%）</finding>
+          <finding severity="INFO">零架构越界：所有「如何实现」（FRP 解析落点、命令映射表落点、工具选择落点、验证逻辑改动方式）均标注「交 GROUP_B 架构裁决」</finding>
+          <finding severity="RESOLVED">Q-RE-01（高）：测试端口 = Gi1/0/2（当前 down 空闲口，无关键业务）</finding>
+          <finding severity="RESOLVED">Q-RE-02（高）：写操作 = no shutdown + shutdown 均允许；shutdown 属隔离场景需更高授权，不作为默认修复动作；description 不纳入</finding>
+          <finding severity="RESOLVED">Q-RE-03（中）：告警类型范围 = 全部类型含修复（PORT_DOWN/PORT_SHUTDOWN/CPU_HIGH/MAC_FLAPPING）</finding>
+          <finding severity="RISK">RISK-RE-01（高）：CPU_HIGH/MAC_FLAPPING 的 TP-Link 真实修复命令存在性未知（Cisco CoPP/port-security 模板不可用），需 GROUP_B 核实 TL-SG5428 等价 CLI（storm-control/端口安全/CPU 限速）；无等价则降级为「真实诊断+告警闭环、修复降级」</finding>
+          <finding severity="OPEN">Q-RE-04（中）：CPU_HIGH 阈值与判定标准——现有硬编码 92%/阈值80% 需确认 TL-SG5428 实际阈值</finding>
+          <finding severity="OPEN">Q-RE-05（中）：凭据是否已通过环境变量/DB Fernet 就位，FRP 隧道 127.0.0.1:6022 是否可达</finding>
+          <finding severity="OPEN">Q-RE-06（中）：告警真实性口径——调用侧传真实参数 vs simulate 端点按 device_name 自动回填</finding>
+          <finding severity="MINOR">工具选择缺口（比 FRP 更上游）：src/main.py L79-80 注入 Mock 工具，node_handlers.py L169-183 仅 SIMULATOR 分支，REAL 会落 Mock 假数据（已列为 REQ-RE-FUNC-003）</finding>
+          <finding severity="MINOR">DIAG_COMMAND_MAP 缺 PORT_SHUTDOWN 键（node_handlers.py L48-61），若 Q-RE-02/03 允许 PORT_SHUTDOWN 场景需补映射</finding>
+          <finding severity="MINOR">alerts_router.py L245 source=AlertSource.MOCK 恒成立，REAL 告警在审计/UI 仍标 MOCK（与 Q-RE-06 关联）</finding>
+          <finding severity="MINOR">tpl_port_enable/disable 模板含 description &lt;desc&gt; 额外写操作（与 Q-RE-02 关联）</finding>
+        </findings>
+        <completed_at>2026-09-05T03:05:00Z</completed_at>
+        <note>GROUP_RE_A 需求分析定稿完成（PHASE_RE_01/02 APPROVED）。用户已确认 Q-RE-01/02/03（全部类型含修复 + CPU/MAC 可行性待 GROUP_B 核实 RISK-RE-01）。Q-RE-04/05/06 仍开放（CPU 阈值、凭据/隧道就位、告警真实性口径），不阻塞定稿，转 GROUP_B 或 E2E 执行前核实。未确认前不得进入 GROUP_RE_B 架构设计/编码/测试/部署</note>
+      </gate_review>
+    </phase_group>
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RE_B: 真实设备端到端架构设计                            -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RE_B" name="真实设备端到端架构设计" responsible_agent="sub_agent_system_architect">
+      <phase id="PHASE_RE_03" name="真实设备端到端架构决策记录">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T03:15:00Z</started_at>
+        <completed_at>2026-09-05T04:10:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/architecture/real_device_e2e_architecture_design.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RE_04" name="真实设备端到端模块设计与技术选型">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T03:15:00Z</started_at>
+        <completed_at>2026-09-05T04:10:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/architecture/real_device_e2e_module_design.md" status="APPROVED"/>
+          <file path="real_device_e2e/architecture/real_device_e2e_tech_stack.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-real-e2e-b-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="INFO">7 个 ADR（ADR-RE-001~007），每个 ≥2 方案对比；8 REQ-RE-FUNC + 4 REQ-RE-NFUNC 100% 模块覆盖；依赖图无循环；12 个类型化 IFC 契约</finding>
+          <finding severity="INFO">零新增第三方依赖（Python/Node 均无）；零新增后端文件；main.py MOCK 注入、switch_*_tool 工厂、real_device_client/real_panel_parsers/real_session_gate 均零改动</finding>
+          <finding severity="RESOLVED">RISK-RE-01（高，条件1，已 RESOLVED）：用户显式授权只读探测（点名 192.168.31.220 via VPS 47.109.197.217 / FRP 127.0.0.1:6022），探测完成。结论：TL-SG5428 接口/全局级命令集无 port-security（port 为 Port isolation）、无 CoPP/policy-map/class-map、无 storm-control、无 CPU 保护命令（仅 bandwidth 端口限速 + loopback-detection 环路检测）；show mac address-table（空格版）可用。故 CPU_HIGH/MAC_FLAPPING 均无可核实等价修复命令，ADR-RE-004 定稿为 DEGRADED（真实诊断 + 告警闭环、修复降级）</finding>
+          <finding severity="INFO">条件2（实现校准，转 GROUP_C）：TpLink*Tool 现用 _SshSession（paramiko）直连，TL-SG5428 ssh-dss/DSA KEX 在 Windows 可能被拒，实现阶段复用 _open_ssh_session（OpenSSH→plink→paramiko）会话链（VPS 上 Linux OpenSSH 已验证可用），架构不强制改工具层</finding>
+          <finding severity="INFO">条件3（Q-RE-04，转 E2E）：CPU_HIGH 判定阈值与告警描述（alerts_router.py L212 硬编码 92%/80%）——因 CPU_HIGH 已 DEGRADED（无修复），阈值仅影响 simulate 告警描述文案与诊断显示，不阻塞 GROUP_C 编码，E2E 执行前用户确认即可</finding>
+        </findings>
+        <completed_at>2026-09-05T04:40:00Z</completed_at>
+        <note>GROUP_RE_B 架构设计完成，门控 PASS。三份架构文档 APPROVED。条件1（CPU/MAC 只读探测）已由用户显式授权并完成探测 → CPU_HIGH/MAC_FLAPPING 定稿 DEGRADED；条件2（DSA 会话链）转 GROUP_C 实现校准；条件3（CPU 阈值）转 E2E 执行前确认。用户已确认进入 GROUP_RE_C 编码</note>
+      </gate_review>
+    </phase_group>
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RE_C: 真实设备端到端编码实现                            -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RE_C" name="真实设备端到端编码实现" responsible_agent="sub_agent_software_developer">
+      <phase id="PHASE_RE_05" name="实现计划与编码">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T04:40:00Z</started_at>
+        <completed_at>2026-09-05T05:40:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/development/real_device_e2e_implementation_plan.md" status="APPROVED"/>
+          <file path="src/orchestration/node_handlers.py" status="APPROVED"/>
+          <file path="src/api/alerts_router.py" status="APPROVED"/>
+          <file path="resources/templates/tpl_port_enable.yaml" status="APPROVED"/>
+          <file path="resources/templates/tpl_port_disable.yaml" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RE_06" name="代码评审">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T05:40:00Z</started_at>
+        <completed_at>2026-09-05T05:50:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/development/real_device_e2e_code_review_report.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-real-e2e-c-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="INFO">4 个代码/资源文件改动（node_handlers.py +609/-51、alerts_router.py +29/-20、两个 PORT 模板各 -2），+640/-73 行；7 条 ADR（ADR-RE-001~007）全部落地，PM 抽查核实 resolve_real_access/_resolve_real_credentials/resolve_fix_capability/verify_real_fix/REAL_DIAG_COMMAND_MAP 均符合 ADR 且凭据门控到位</finding>
+          <finding severity="INFO">零新增 Python/Node 依赖；src/main.py L79-80 MOCK 注入未改；单测 487 passed / 1 xfailed（xfailed 为既有预期失败），MOCK/SIMULATOR 零回归</finding>
+          <finding severity="RESOLVED">FND-C1（CRITICAL）：REAL 明文密码落时间线快照 → 新增 _sanitize_state_snapshot 脱敏，已修复</finding>
+          <finding severity="RESOLVED">FND-C2（CRITICAL）：_sanitize_state_snapshot 自递归栈溢出 → 改回 dict(state)，已修复</finding>
+          <finding severity="MAJOR">FND-M1：switch_diag_tool/switch_config_tool 的 _SshSession（paramiko）直连在 TL-SG5428 DSA KEX 下拒连风险（架构开放问题1，零改动清单约束下未改工具层；workflow 层连通探测/备份已用 _open_ssh_session 链），DOCUMENTED，转后续 ADR</finding>
+          <finding severity="MAJOR">FND-M2：test_e2e_full.py::test_has_commands 依赖旧 3 命令模板（CI 排除项，非门禁），转 test_engineer 同步更新断言</finding>
+          <finding severity="MINOR">FND-N1：_extract_auth 的 admin123 字面默认仅 MOCK 路径可达（REAL 已被 _resolve_real_credentials 门控）；FND-N2：CPU_HIGH 阈值描述仍硬编码（Q-RE-04）；FND-N3：CPU_HIGH 第二条命令未单独结构化</finding>
+        </findings>
+        <completed_at>2026-09-05T05:50:00Z</completed_at>
+        <note>GROUP_RE_C 编码实现完成，门控 PASS。7 ADR 全落地 + 安全门控核实通过 + 零回归（487/1）。遗留 2 MAJOR（工具层 DSA 会话链硬化、e2e 断言更新）均 DOCUMENTED 且不阻塞，分别转后续 ADR 与 test_engineer。进入 GROUP_RE_D 测试验证前，需先决定是否对真实端口 Gi1/0/2 执行写操作 E2E（需用户单独授权端口写）</note>
+      </gate_review>
+    </phase_group>
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RE_D: 真实设备端到端测试验证                            -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RE_D" name="真实设备端到端测试验证" responsible_agent="sub_agent_test_engineer">
+      <phase id="PHASE_RE_07" name="测试计划">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T05:56:00Z</started_at>
+        <completed_at>2026-09-05T06:10:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/testing/real_device_e2e_test_plan.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RE_08" name="单元测试与集成测试">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T06:10:00Z</started_at>
+        <completed_at>2026-09-05T06:30:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/testing/real_device_e2e_unit_test_report.md" status="APPROVED"/>
+          <file path="real_device_e2e/testing/real_device_e2e_integration_test_report.md" status="APPROVED"/>
+          <file path="tests/test_real_device_e2e_unit.py" status="APPROVED"/>
+          <file path="tests/test_real_device_e2e_integration.py" status="APPROVED"/>
+          <file path="tests/test_e2e_full.py" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RE_09" name="端到端测试">
+        <status>DEFERRED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T06:30:00Z</started_at>
+        <completed_at>2026-09-05T06:40:00Z</completed_at>
+        <output_files>
+          <file path="real_device_e2e/testing/real_device_e2e_e2e_test_report.md" status="APPROVED"/>
+          <file path="real_device_e2e/testing/e2e_real_write_test.py" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-real-e2e-d-001</review_id>
+        <decision>PASS_WITH_CONDITIONS</decision>
+        <findings>
+          <finding severity="INFO">单元测试 36/36 = 100%（门控 ≥80% PASSED）；覆盖 8 个 REAL 纯函数 + 安全常量红线（无 admin123 兜底、密码脱敏、白名单 {Gi1/0/2}、MAC 空格版命令）</finding>
+          <finding severity="INFO">集成测试 17/17 = 100%（门控 ≥90% PASSED）；NodeHandlers REAL 分支 + simulate_alert 回填 + _real_backup 只读（仅 show running-config，不 save/write）</finding>
+          <finding severity="INFO">全量回归 540 passed / 1 xfailed（基线 487/1，净增 +53），MOCK/SIMULATOR/REAL 面板零回归；PM 抽查复跑 53 个新测试全通过</finding>
+          <finding severity="RESOLVED">FND-M2 已修复：test_e2e_full.py::test_has_commands 断言 3→2 命令并加 description 断言</finding>
+          <finding severity="INFO">E2E 脚本 e2e_real_write_test.py 就绪（py_compile + dry-run + 门控自检通过；--real-write 默认关闭；无硬编码密码）</finding>
+          <finding severity="OPEN">条件1（唯一未清项）：E2E 真实写闭环（TC-E2E-001~004）推迟 GROUP_E——FRP 隧道 127.0.0.1:6022 为 VPS-local，需先部署 GROUP_RE_C 代码到 VPS 再执行（用户已授权 Gi1/0/2 可逆写）</finding>
+          <finding severity="MINOR">无生产代码缺陷；test_inspection src.api MagicMock 隔离缺陷为预存（已用文件式加载绕过）；AC 组数 17→16 勘误转 requirement_analyst</finding>
+        </findings>
+        <completed_at>2026-09-05T06:40:00Z</completed_at>
+        <note>GROUP_RE_D 测试验证，门控 PASS_WITH_CONDITIONS。单元 100%/集成 100%/回归 540/1 均通过，零生产缺陷，FND-M2 已修。唯一条件：E2E 真实写闭环推迟至 GROUP_E 部署后执行（用户已授权）。进入 GROUP_E 部署交付</note>
       </gate_review>
     </phase_group>
 
