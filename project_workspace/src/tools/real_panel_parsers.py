@@ -37,8 +37,8 @@ class CpuUsage:
 
 @dataclass
 class MemoryUsage:
-    used_mb: float
-    total_mb: float
+    used_mb: Optional[float]
+    total_mb: Optional[float]
     usage_pct: float
 
 
@@ -83,6 +83,9 @@ _STATUS_RE = (
     r"enabled?|disabled?|up|down)\b"
 )
 
+# 分页提示行（TP-Link 分页输出末尾的 "Press any key to continue (Q to quit)"）
+_PAGER_RE = re.compile(r"press\s+(?:any\s+key|enter)", re.I)
+
 
 def parse_interface_status(text: str) -> list[PortStatus]:
     """解析 `show interface status` 清洗后文本 → 端口列表。
@@ -111,15 +114,29 @@ def parse_interface_status(text: str) -> list[PortStatus]:
     if header_idx is None:
         raise RealPanelError("ports", "未找到端口状态表头（Port/Status）", _excerpt(text))
 
+    # 真实 TL-SG5428 `show interface status` 为 Port/Status/Speed/Duplex 列式，
+    # 无 VLAN 列（header 含 Speed+Duplex、不含 Vlan/PVID），走列式分支避免把
+    # 速率 "1000M" 误当 VLAN。
+    header_line = lines[header_idx].lower()
+    real_speed_fmt = (
+        "speed" in header_line
+        and "duplex" in header_line
+        and "vlan" not in header_line
+        and "pvid" not in header_line
+    )
+
     ports: list[PortStatus] = []
     for ln in lines[header_idx + 1:]:
         s = ln.strip()
         if not s:
             continue
+        # 跳过分页提示行（如 "Press any key to continue (Q to quit)"）
+        if _PAGER_RE.search(s):
+            continue
         # 跳过纯分隔线（如 ---- ---- ----）
         if set(s.replace("\t", " ").replace(" ", "")) <= set("-"):
             continue
-        port = _parse_port_line(s)
+        port = _parse_real_speed_port_line(s) if real_speed_fmt else _parse_port_line(s)
         if port is not None:
             ports.append(port)
 
@@ -151,6 +168,25 @@ def _parse_port_line(line: str) -> Optional[PortStatus]:
         speed = spd_m.group(1)
 
     return PortStatus(name=name, status=status, vlan=vlan, speed=speed)
+
+
+def _parse_real_speed_port_line(line: str) -> Optional[PortStatus]:
+    """TP-Link TL-SG5428 `show interface status` 列式：Port Status Speed Duplex
+    FlowCtrl Active-Medium（无 VLAN 列）。vlan 置空，speed 取 status 后一列。"""
+    toks = line.split()
+    if not toks:
+        return None
+    name = toks[0]
+    status = "unknown"
+    speed = ""
+    for i in range(1, len(toks)):
+        s = _normalize_port_status(toks[i])
+        if s in ("up", "down", "notconnect"):
+            status = s
+            if i + 1 < len(toks) and toks[i + 1].lower() not in ("n/a", "na"):
+                speed = toks[i + 1]
+            break
+    return PortStatus(name=name, status=status, vlan="", speed=speed)
 
 
 _STATUS_NORMALIZE = {
@@ -240,7 +276,10 @@ def _mem_number(text: str, labels) -> Optional[float]:
 def parse_memory_utilization(text: str) -> MemoryUsage:
     """解析 `show memory-utilization` 文本 → used_mb / total_mb / usage_pct。
 
-    若命令仅返回 used/free/total 则 usage_pct = used / total * 100。
+    兼容两种真实输出形态：
+      1) 带 used/free/total 的 MB 分解（usage_pct 缺失时按 used/total 推导）；
+      2) 仅返回裸百分比（如 TL-SG5428 的 "80%"）——used_mb/total_mb 置 None，
+         usage_pct 取自百分比，不抛错（REQ-RP-FUNC-009 的降级展示）。
     """
     if not text or not text.strip():
         raise RealPanelError("memory", "show memory-utilization 输出为空", _excerpt(text))
@@ -253,6 +292,9 @@ def parse_memory_utilization(text: str) -> MemoryUsage:
     m = re.search(r"(\d+(?:\.\d+)?)\s*%\s*(?:used|utiliz)", text, re.I)
     if m is None:
         m = re.search(r"(?:utiliz|usage)[^\d\n]*?(\d+(?:\.\d+)?)\s*%", text, re.I)
+    if m is None:
+        # 真实设备仅返回裸百分比（无 used/total 标签）
+        m = re.search(r"(\d+(?:\.\d+)?)\s*%", text)
     if m:
         pct = float(m.group(1))
 
@@ -260,6 +302,10 @@ def parse_memory_utilization(text: str) -> MemoryUsage:
         total = used + free
     if used is None and total is not None and free is not None:
         used = total - free
+
+    # 仅有百分比、无 MB 分解：降级返回（used/total 置 None）
+    if (total is None or used is None) and pct is not None:
+        return MemoryUsage(used_mb=used, total_mb=total, usage_pct=pct)
 
     if total is None or used is None:
         raise RealPanelError("memory", "未能解析出内存 used/total", _excerpt(text))

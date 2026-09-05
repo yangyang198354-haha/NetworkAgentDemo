@@ -264,7 +264,7 @@
               <span class="sys-label">内存</span>
               <el-progress :percentage="realPanelData.memory?.usage_pct || 0" :color="cpuColor(realPanelData.memory?.usage_pct)"
                 :stroke-width="14" />
-              <span class="sys-value">{{ realPanelData.memory?.used_mb }} / {{ realPanelData.memory?.total_mb }} MB</span>
+              <span class="sys-value">{{ memText(realPanelData.memory) }}</span>
             </div>
             <div class="sys-item">
               <span class="sys-label">IO 读</span>
@@ -636,6 +636,14 @@ function ioText(io: any, key: 'read' | 'write'): string {
     return io?.message || '该设备不支持 IO 采集'
   }
   return `${io[field]} KB/s`
+}
+
+function memText(mem: any): string {
+  if (!mem) return '—'
+  const hasMb = mem.used_mb !== null && mem.used_mb !== undefined &&
+    mem.total_mb !== null && mem.total_mb !== undefined
+  if (hasMb) return `${mem.used_mb} / ${mem.total_mb} MB`
+  return `使用率 ${mem.usage_pct}%（设备未提供 MB 分解）`
 }
 
 // ── Helpers ────────────────────────────────────────────

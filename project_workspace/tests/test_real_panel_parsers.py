@@ -146,6 +146,32 @@ class TestParseInterfaceStatus:
         assert len(ports) == 1
         assert ports[0].name == "Gi0/1"
 
+    def test_pager_footer_skipped(self):
+        # 真实 TL-SG5428 分页输出末尾带 "Press any key to continue (Q to quit)"
+        text = ("Port Status Speed Duplex FlowCtrl Active-Medium\n"
+                "Gi1/0/1 LinkUp 1000M Full Disable Copper\n"
+                "Press any key to continue (Q to quit)")
+        ports = parse_interface_status(text)
+        assert len(ports) == 1
+        assert ports[0].name == "Gi1/0/1"
+
+    def test_real_speed_format_no_vlan(self):
+        # 真实 TL-SG5428 `show interface status` 无 VLAN 列，speed 取 status 后一列
+        text = ("Port Status Speed Duplex FlowCtrl Active-Medium\n"
+                "---- ------ ----- ------ -------- -------------\n"
+                "Gi1/0/1 LinkUp 1000M Full Disable Copper\n"
+                "Gi1/0/2 LinkDown N/A N/A N/A Copper")
+        ports = parse_interface_status(text)
+        assert len(ports) == 2
+        assert ports[0].name == "Gi1/0/1"
+        assert ports[0].status == "up"
+        assert ports[0].speed == "1000M"
+        assert ports[0].vlan == ""
+        assert ports[1].name == "Gi1/0/2"
+        assert ports[1].status == "down"
+        assert ports[1].speed == ""
+        assert ports[1].vlan == ""
+
     def test_header_only_no_rows_raises(self):
         with pytest.raises(RealPanelError) as ei:
             parse_interface_status("Port Status Vlan Speed")
@@ -284,6 +310,17 @@ class TestParseMemoryUtilization:
 
     def test_returns_memory_usage_type(self):
         assert isinstance(parse_memory_utilization("Used: 1 MB\nTotal: 2 MB"), MemoryUsage)
+
+    def test_percentage_only_real_output_degrades(self):
+        # 真实 TL-SG5428 `show memory-utilization` 仅返回裸百分比 "80%"
+        mem = parse_memory_utilization(
+            "Unit  |  Current Memory Utilization\n"
+            "-------+----------------------------\n"
+            " 1     |   80%"
+        )
+        assert mem.usage_pct == 80.0
+        assert mem.used_mb is None
+        assert mem.total_mb is None
 
 
 # ═══════════════════════════════════════════════════════════
