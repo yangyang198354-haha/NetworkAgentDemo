@@ -4,16 +4,13 @@ MOD-011: SwitchDiagTool — Diagnostic command execution on network switches.
 @module MOD-011
 @implements IFC-011-01
 @depends None
-@covers REQ-FUNC-008, REQ-FUNC-009, REQ-FUNC-018, REQ-NFUNC-014
+@covers REQ-FUNC-008, REQ-FUNC-009, REQ-FUNC-018, REQ-NFUNC-014, REAL-DEVICE-005
 
-Strategy Pattern: AbstractSwitchDiagTool (ABC) → MockSwitchDiagTool | TpLinkSwitchDiagTool (reserved)
-
-Mock 实现为 3 种告警类型提供逼真的模拟诊断数据:
-  - MAC_FLAPPING → show mac address-table（含 MAC 漂移信息）
-  - PORT_DOWN → show interface {iface}（端口 down 状态）
-  - CPU_HIGH → show processes cpu（高 CPU 进程列表）
+Strategy Pattern: AbstractSwitchDiagTool (ABC)
+  → MockSwitchDiagTool | TpLinkSwitchDiagTool (REAL implementation + Simulator delegated)
 """
 
+import re
 import time
 import random
 from abc import ABC, abstractmethod
@@ -33,7 +30,7 @@ from src.models.fix_plan import DiagResult
 MOCK_MAC_TABLE = """Mac Address Table
 -------------------------------------------
 Vlan    Mac Address       Type        Ports
-----    -----------       --------    -----
+----    ----------       --------    -----
    1    00:1A:2B:3C:4D:5E DYNAMIC     Gi0/1
    1    00:1A:2B:3C:4D:5E DYNAMIC     Gi0/2
    1    00:2F:3A:4B:5C:6D DYNAMIC     Gi0/3
@@ -79,7 +76,7 @@ MOCK_INTERFACE_DETAIL = """GigabitEthernet0/1 is down, line protocol is down (no
      0 watchdog, 0 multicast, 0 pause input
      0 input packets with dribble condition detected
      0 packets output, 0 bytes, 0 underruns
-     0 output errors, 0 collisions, 0 interface resets
+     0 output errors, 0 collisions, 1 interface resets
      0 unknown protocol drops
      0 babbles, 0 late collision, 0 deferred
      0 lost carrier, 0 no carrier, 0 pause output
@@ -173,14 +170,6 @@ class AbstractSwitchDiagTool(BaseTool, ABC):
 class MockSwitchDiagTool(AbstractSwitchDiagTool):
     """
     Mock 实现 — 根据命令和预定义的告警类型返回逼真的模拟诊断数据。
-
-    支持的命令映射:
-      - show mac address-table → MAC 表（含漂移检测）
-      - show interface {iface} → 详细接口状态
-      - show interface status → 所有接口状态列表
-      - show processes cpu → CPU 进程列表
-      - show processes cpu history → CPU 历史趋势
-      - show logging → 系统日志
     """
 
     name: str = "switch_diag"
@@ -197,7 +186,6 @@ class MockSwitchDiagTool(AbstractSwitchDiagTool):
         "show logging": MOCK_LOGGING,
     }
 
-    # 模拟命令执行时间范围 (ms)
     _MIN_EXEC_TIME = 200
     _MAX_EXEC_TIME = 800
 
@@ -208,36 +196,26 @@ class MockSwitchDiagTool(AbstractSwitchDiagTool):
         auth: DeviceAuth,
     ) -> DiagResult:
         execution_time = random.randint(self._MIN_EXEC_TIME, self._MAX_EXEC_TIME)
-        time.sleep(execution_time / 1000.0)  # 模拟网络延迟
-
+        time.sleep(execution_time / 1000.0)
         cmd_lower = command.lower().strip()
 
-        # 精确匹配已知命令（按长度降序，避免子串误匹配）
         sorted_commands = sorted(self._MOCK_RESPONSES.keys(), key=len, reverse=True)
         for known_cmd in sorted_commands:
             if known_cmd in cmd_lower:
-                logger.info(f"[MockDiag] {device_ip}: '{command}' → matched '{known_cmd}' ({execution_time}ms)")
+                logger.info(f"[MockDiag] {device_ip}: '{command}' → matched '{known_cmd}'")
                 return DiagResult(
                     success=True,
                     output=self._MOCK_RESPONSES[known_cmd],
                     execution_time_ms=execution_time,
                 )
 
-        # show interface {iface} 动态匹配
         if "show interface " in cmd_lower:
             iface_name = cmd_lower.replace("show interface ", "").strip()
-            # 替换接口名
-            detail_output = MOCK_INTERFACE_DETAIL.replace("GigabitEthernet0/1", iface_name)
-            detail_output = detail_output.replace("Gi0/1", iface_name)
-            logger.info(f"[MockDiag] {device_ip}: '{command}' → interface detail ({execution_time}ms)")
-            return DiagResult(
-                success=True,
-                output=detail_output,
-                execution_time_ms=execution_time,
-            )
+            detail = MOCK_INTERFACE_DETAIL.replace("GigabitEthernet0/1", iface_name)
+            detail = detail.replace("Gi0/1", iface_name)
+            return DiagResult(success=True, output=detail,
+                              execution_time_ms=execution_time)
 
-        # 未匹配的命令
-        logger.info(f"[MockDiag] {device_ip}: '{command}' → generic mock response ({execution_time}ms)")
         return DiagResult(
             success=True,
             output=f"! Mock output for: {command}\n! Device: {device_ip}\n! Status: OK\n",
@@ -246,17 +224,23 @@ class MockSwitchDiagTool(AbstractSwitchDiagTool):
 
 
 # ────────────────────────────────────────────────────
-# TP-Link Implementation (Reserved)
+# TP-Link Real SSH Implementation (REAL-DEVICE-005)
 # ────────────────────────────────────────────────────
 
 class TpLinkSwitchDiagTool(AbstractSwitchDiagTool):
     """
-    TP-Link 真实实现（预留）。
-    Demo 阶段不实现真实 SSH 调用，_run() 抛出 NotImplementedError。
+    TP-Link 真实设备诊断工具（基于 paramiko SSH / telnetlib）。
+
+    Executes the requested diagnostic command via a shell session, strips echo
+    + trailing prompt lines, returns raw text in DiagResult.output.
     """
 
     name: str = "switch_diag_tplink"
-    description: str = "Execute diagnostic commands on TP-Link switch via SSH (Reserved)"
+    description: str = (
+        "Execute diagnostic commands on a real TP-Link switch via SSH or Telnet "
+        "(REAL-DEVICE-005). Supports FRP-mapped host/ports through auth port/protocol "
+        "override or device.frp_proxy_* session resolution."
+    )
 
     def _run(
         self,
@@ -264,17 +248,61 @@ class TpLinkSwitchDiagTool(AbstractSwitchDiagTool):
         command: str,
         auth: DeviceAuth,
     ) -> DiagResult:
-        """
-        [RESERVED] 后续阶段启用 TP-Link 真实 SSH 诊断。
-        使用 Netmiko:
-          - SSH 连接交换机
-          - 执行 show 命令
-          - 解析原始输出为结构化数据
-        """
-        raise NotImplementedError(
-            "TpLinkSwitchDiagTool is reserved for future TP-Link integration. "
-            "Use MockSwitchDiagTool for Demo phase."
-        )
+        from src.tools.real_device_client import _SshSession, _TelnetSession
+
+        if not command:
+            return DiagResult(success=False, output="Empty command",
+                              execution_time_ms=0)
+
+        start = time.perf_counter()
+        port = int(getattr(auth, "port", None) or auth.ssh_port or 22)
+        protocol = (getattr(auth, "protocol", None) or "SSH").upper()
+        username = auth.username or "admin"
+        password = auth.password or ""
+        logger.info(f"[TpLinkDiag] {device_ip}:{port} proto={protocol} cmd={command!r}")
+
+        try:
+            if protocol == "SSH":
+                sess = _SshSession(device_ip, port, username, password).open()
+            elif protocol == "TELNET":
+                sess = _TelnetSession(device_ip, port, username, password).open()
+            else:
+                return DiagResult(success=False,
+                                  output=f"Unsupported protocol: {protocol}",
+                                  execution_time_ms=0)
+        except Exception as e:
+            logger.exception("[TpLinkDiag] connect failed")
+            return DiagResult(
+                success=False,
+                output=f"Connect failed ({protocol} {device_ip}:{port}): {e.__class__.__name__}: {e}",
+                execution_time_ms=int((time.perf_counter() - start) * 1000),
+            )
+
+        try:
+            output = sess.show(command)
+        except Exception as e:
+            logger.exception("[TpLinkDiag] command execution failed")
+            return DiagResult(
+                success=False,
+                output=f"Command execution failed: {e.__class__.__name__}: {e}",
+                execution_time_ms=int((time.perf_counter() - start) * 1000),
+            )
+        finally:
+            try:
+                sess.close()
+            except Exception:
+                pass
+
+        elapsed = int((time.perf_counter() - start) * 1000)
+        success = True
+        # Mark failed if CLI complains about the command itself
+        out_lower = output.lower()
+        if any(bad in out_lower for bad in
+               ("% invalid input", "% incomplete command", "unknown command",
+                "^   ", "error:", "invalid parameter")):
+            success = False
+        logger.info(f"[TpLinkDiag] ok={success} {elapsed}ms")
+        return DiagResult(success=success, output=output, execution_time_ms=elapsed)
 
 
 # ────────────────────────────────────────────────────
@@ -290,15 +318,18 @@ def create_switch_diag_tool(
 
     Args:
         use_mock: [DEPRECATED] 保留向后兼容，优先使用 device_type
-        device_type: "MOCK" → MockSwitchDiagTool | "SIMULATOR" → SimulatorDiagTool
+        device_type: MOCK → MockSwitchDiagTool
+                     SIMULATOR → SimulatorDiagTool
+                     REAL → TpLinkSwitchDiagTool (真实 SSH/Telnet)
 
-    REQ-FUNC-111: 工具工厂策略扩展 — 根据设备类型分发。
+    REAL-DEVICE-005: 工厂策略扩展 — 新增 REAL 分支。
     """
-    if device_type == "SIMULATOR":
+    dt = (device_type or "").upper()
+    if dt == "SIMULATOR":
         from src.tools.simulator_diag_tool import SimulatorDiagTool
         return SimulatorDiagTool()
-
+    if dt == "REAL":
+        return TpLinkSwitchDiagTool()
     if not use_mock:
         return TpLinkSwitchDiagTool()
-
     return MockSwitchDiagTool()

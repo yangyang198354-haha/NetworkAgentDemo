@@ -4,14 +4,15 @@ MOD-010: SwitchConfigTool — Configuration command execution on network switche
 @module MOD-010
 @implements IFC-010-01
 @depends None
-@covers REQ-FUNC-014, REQ-FUNC-017, REQ-NFUNC-014
+@covers REQ-FUNC-014, REQ-FUNC-017, REQ-NFUNC-014, REAL-DEVICE-004
 
-Strategy Pattern: AbstractSwitchConfigTool (ABC) → MockSwitchConfigTool | TpLinkSwitchConfigTool (reserved)
+Strategy Pattern: AbstractSwitchConfigTool (ABC)
+  → MockSwitchConfigTool | TpLinkSwitchConfigTool (REAL/SSH + Simulator delegated)
 """
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Type
+from typing import Any, Optional
 
 from langchain_core.tools import BaseTool
 from loguru import logger
@@ -93,19 +94,18 @@ class MockSwitchConfigTool(AbstractSwitchConfigTool):
             output_lines.append(f"[OK] Command executed successfully")
             commands_executed += 1
 
-            # 模拟 ssh 命令执行结果
             if "interface" in cmd.lower():
-                output_lines.append(f"Entering interface configuration mode...")
+                output_lines.append("Entering interface configuration mode...")
             elif "no shutdown" in cmd.lower():
-                output_lines.append(f"Interface enabled")
+                output_lines.append("Interface enabled")
             elif "shutdown" in cmd.lower():
-                output_lines.append(f"Interface disabled")
+                output_lines.append("Interface disabled")
             elif "switchport" in cmd.lower():
-                output_lines.append(f"Switchport configuration applied")
+                output_lines.append("Switchport configuration applied")
             elif "description" in cmd.lower():
-                output_lines.append(f"Description updated")
+                output_lines.append("Description updated")
             elif "router" in cmd.lower():
-                output_lines.append(f"Routing configuration applied")
+                output_lines.append("Routing configuration applied")
 
         return ConfigResult(
             success=True,
@@ -116,17 +116,26 @@ class MockSwitchConfigTool(AbstractSwitchConfigTool):
 
 
 # ────────────────────────────────────────────────────
-# TP-Link Implementation (Reserved)
+# TP-Link Real SSH Implementation (REAL-DEVICE-004)
 # ────────────────────────────────────────────────────
 
 class TpLinkSwitchConfigTool(AbstractSwitchConfigTool):
     """
-    TP-Link 真实实现（预留）。
-    Demo 阶段不实现真实 SSH 调用，_run() 抛出 NotImplementedError。
+    TP-Link 真实设备配置工具（基于 paramiko SSH / telnetlib TELNET）。
+
+    Supports:
+      - Enter config mode, run ordered list of commands, exit, save.
+      - Auto-detect connection protocol via Device.connection_protocol; if
+        the caller only passes plain `device_ip` without a device object we
+        default to SSH.
     """
 
     name: str = "switch_config_tplink"
-    description: str = "Execute configuration commands on TP-Link switch via SSH (Reserved)"
+    description: str = (
+        "Execute configuration commands on a real TP-Link switch via SSH or "
+        "Telnet (REAL-DEVICE-004). Supports FRP-mapped host/ports by passing "
+        "auth.port override or device.frp_proxy_* through session factory."
+    )
 
     def _run(
         self,
@@ -134,15 +143,55 @@ class TpLinkSwitchConfigTool(AbstractSwitchConfigTool):
         commands: list[str],
         auth: DeviceAuth,
     ) -> ConfigResult:
-        """
-        [RESERVED] 后续阶段启用 TP-Link 真实 SSH 配置下发。
-        使用 Netmiko + NAPALM:
-          - Netmiko: SSH 连接 + 命令执行
-          - NAPALM: merge/commit/discard 配置会话
-        """
-        raise NotImplementedError(
-            "TpLinkSwitchConfigTool is reserved for future TP-Link integration. "
-            "Use MockSwitchConfigTool for Demo phase."
+        from src.tools.real_device_client import (
+            DeviceToolSession,
+            _SshSession,
+            _TelnetSession,
+        )
+
+        if not commands:
+            return ConfigResult(success=True, output="(no commands provided)",
+                                commands_executed=0, commands_failed=0)
+
+        start = time.perf_counter()
+        port = int(getattr(auth, "port", None) or auth.ssh_port or 22)
+        protocol = (getattr(auth, "protocol", None) or "SSH").upper()
+        username = auth.username or "admin"
+        password = auth.password or ""
+        logger.info(f"[TpLinkConfig] {device_ip}:{port} proto={protocol} cmds={len(commands)}")
+
+        try:
+            if protocol == "SSH":
+                sess = _SshSession(device_ip, port, username, password).open()
+            elif protocol == "TELNET":
+                sess = _TelnetSession(device_ip, port, username, password).open()
+            else:
+                raise ValueError(f"Unsupported protocol {protocol}")
+        except Exception as e:
+            logger.exception(f"[TpLinkConfig] connect failed")
+            return ConfigResult(
+                success=False,
+                output=f"Connect failed ({protocol} {device_ip}:{port}): {e.__class__.__name__}: {e}",
+                commands_executed=0,
+                commands_failed=len(commands),
+            )
+
+        try:
+            executed, failed, output = sess.configure(commands)
+        finally:
+            try:
+                sess.close()
+            except Exception:
+                pass
+
+        elapsed = int((time.perf_counter() - start) * 1000)
+        success = (failed == 0) and (executed > 0 or len(commands) == 0)
+        logger.info(f"[TpLinkConfig] done ok={success} exec={executed} fail={failed} {elapsed}ms")
+        return ConfigResult(
+            success=success,
+            output=output,
+            commands_executed=executed,
+            commands_failed=failed,
         )
 
 
@@ -159,15 +208,18 @@ def create_switch_config_tool(
 
     Args:
         use_mock: [DEPRECATED] 保留向后兼容，优先使用 device_type
-        device_type: "MOCK" → MockSwitchConfigTool | "SIMULATOR" → SimulatorConfigTool
+        device_type: MOCK → MockSwitchConfigTool
+                     SIMULATOR → SimulatorConfigTool
+                     REAL → TpLinkSwitchConfigTool (真实 SSH/Telnet)
 
-    REQ-FUNC-111: 工具工厂策略扩展 — 根据设备类型分发。
+    REAL-DEVICE-004: 工具工厂策略扩展 — 新增 REAL 分支。
     """
-    if device_type == "SIMULATOR":
+    dt = (device_type or "").upper()
+    if dt == "SIMULATOR":
         from src.tools.simulator_config_tool import SimulatorConfigTool
         return SimulatorConfigTool()
-
+    if dt == "REAL":
+        return TpLinkSwitchConfigTool()
     if not use_mock:
         return TpLinkSwitchConfigTool()
-
     return MockSwitchConfigTool()

@@ -15,11 +15,16 @@ from .enums import AlertType, AlertSeverity, AlertSource
 
 
 class DeviceAuth(BaseModel):
-    """设备认证凭据 — REQ-NFUNC-004 最小权限账号"""
+    """设备认证凭据 — REQ-NFUNC-004 最小权限账号
+
+    扩展 REAL-DEVICE-002: 新增 `protocol` 字段，供 TpLink* Tool 层选择 SSH/TELNET
+    会话实现；兼容原有代码（默认 SSH + port=22）。
+    """
     username: str
     password: str
     enable_password: Optional[str] = None
     port: int = 22
+    protocol: str = "SSH"       # SSH | TELNET | HTTP (REAL-DEVICE-002)
 
 
 class DeviceInfo(BaseModel):

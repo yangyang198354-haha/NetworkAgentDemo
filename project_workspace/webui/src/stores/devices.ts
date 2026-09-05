@@ -75,6 +75,17 @@ export const useDevicesStore = defineStore('devices', () => {
     return resp
   }
 
+  // ── REAL device: deep L7 connectivity probe (login + show system-info). ──
+  // Uses a longer per-request timeout because a full TELNET/SSH session round-
+  // trip (login → enable → show commands → parse) can take 20-40s, far beyond
+  // the client's default 15s.
+  async function checkConnectivity(deviceId: number) {
+    const resp: any = await client.post(
+      `/api/devices/${deviceId}/check_connectivity`, {}, { timeout: 120000 }
+    )
+    return resp
+  }
+
   async function getDevicePorts(deviceId: number) {
     const resp: any = await client.get(`/api/devices/${deviceId}/ports`)
     return resp
@@ -100,6 +111,6 @@ export const useDevicesStore = defineStore('devices', () => {
     fetchDevices, createDevice, updateDevice, deleteDevice,
     configureCredentials, fetchDiagnostics,
     startSimulator, stopSimulator, getSimulatorStatus,
-    heartbeat, getDevicePorts, configurePort, getDeviceSystem,
+    heartbeat, checkConnectivity, getDevicePorts, configurePort, getDeviceSystem,
   }
 })

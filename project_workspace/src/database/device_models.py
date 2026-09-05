@@ -35,7 +35,7 @@ class Device(Base, TimestampMixin):
     )
     device_type: Mapped[str] = mapped_column(
         String(20), nullable=False, default="MOCK",
-        comment="设备类型: MOCK / SIMULATOR"
+        comment="设备类型: MOCK / SIMULATOR / REAL (REAL-DEVICE-001)"
     )
     simulator_port: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, default=None,
@@ -44,6 +44,18 @@ class Device(Base, TimestampMixin):
     simulator_status: Mapped[Optional[str]] = mapped_column(
         String(15), nullable=True, default="STOPPED",
         comment="模拟器状态: RUNNING / STOPPED / ERROR"
+    )
+    connection_protocol: Mapped[Optional[str]] = mapped_column(
+        String(10), nullable=True, default=None,
+        comment="接入协议 (仅 REAL 有效): SSH / TELNET / HTTP (REAL-DEVICE-002)"
+    )
+    frp_proxy_host: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, default=None,
+        comment="FRP 映射后的访问地址 (空 = 直连 device_ip, REAL-DEVICE-003)"
+    )
+    frp_proxy_port: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None,
+        comment="FRP 映射后的协议端口 (SSH/TELNET/HTTP 对应) (REAL-DEVICE-003)"
     )
     status: Mapped[Optional[str]] = mapped_column(
         String(15), nullable=True, default="UNKNOWN",

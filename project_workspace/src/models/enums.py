@@ -78,14 +78,28 @@ class DocType(str, Enum):
 
 
 class DeviceType(str, Enum):
-    """设备类型 — 区分 Mock 设备和模拟器设备 (REQ-FUNC-101)
+    """设备类型 — 区分 Mock 设备 / 模拟器设备 / 真实物理设备 (REQ-FUNC-101, REAL-DEVICE-001)
 
     Values:
         MOCK:      Mock 设备，返回预设值的假设备，用于软件测试
         SIMULATOR: 交换机模拟器，具备可交互 SSH 服务
+        REAL:      真实网络设备（通过 SSH/Telnet/HTTP 直接访问，或经 FRP 穿透）
     """
     MOCK = "MOCK"
     SIMULATOR = "SIMULATOR"
+    REAL = "REAL"
+
+
+class ConnectionProtocol(str, Enum):
+    """真实设备接入协议。REAL-DEVICE-002
+
+    SSH:    首选（命令行、交互式、鉴权稳定、带宽占用低）
+    TELNET: 兼容老设备（明文传输，仅当设备不支持 SSH 时使用）
+    HTTP:   TP-Link 等部分 Web 管理型交换机提供 HTTP API（或纯抓取 Web UI）
+    """
+    SSH = "SSH"
+    TELNET = "TELNET"
+    HTTP = "HTTP"
 
 
 class SimulatorStatus(str, Enum):

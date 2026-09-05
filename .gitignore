@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Env / secrets
+.env
+.env.local
+*.key
+*.pem
+
+# Databases / runtime data
+*.db
+*.db-shm
+*.db-wal
+data/
+project_workspace/data/
+project_workspace/src/data/
+project_workspace/data_persistence/
+project_workspace/resources/
+project_workspace/logs/
+logs/
+chroma_db/
+
+# Frontend
+project_workspace/webui/node_modules/
+project_workspace/webui/dist/
+project_workspace/webui/auto-imports.d.ts
+project_workspace/webui/components.d.ts
+project_workspace/webui/package-lock.json
+
+# SSH / telnet smoke & debug scripts (root-level scratch files)
+askpass.exe
+askpass.bat
+askpass.py
+_askpass_src.cs
+plink_*.py
+plink_*.ps1
+openssh_*.py
+openssh_*.ps1
+paramiko_ssh_*.py
+explore_tplink_cli*.py
+diagnose_*.py
+direct_socket_*.py
+raw_*.py
+raw_*.ps1
+probe_*.py
+ssh_*.py
+ssh_*.ps1
+ssh_kex_debug.py
+telnet_*.py
+telnet_session_configure_test.py
+configure_ssh*.py
+configure_ssh_and_verify.py
+configure_tplink.ps1
+enable_ssh_and_smoke.py
+mini_smoke.py
+smoke_real_device*.py
+smoke_telnet_only.py
+verify_tplink.ps1
+test_api_integration*.py
+test_migration.py
+debug.log
+
+# OS
+.DS_Store
+Thumbs.db
