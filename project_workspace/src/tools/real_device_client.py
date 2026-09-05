@@ -358,6 +358,40 @@ if platform.system() == "Windows":
                     f" (askpass: {OPENSSH_ASKPASS_EXE or 'n/a'})")
 
 
+# ── Linux native OpenSSH (ssh + SSH_ASKPASS) support ─────
+#
+# TP-Link IPSSH-6.6.0 presents an ssh-dss host key whose DSA prime `p` has a
+# non-standard size, which paramiko (via the `cryptography` backend) rejects
+# with "p must be exactly 1024, 2048, 3072, or 4096 bits long". OpenSSH
+# accepts it, so on Linux we drive the system `ssh` with a tiny SSH_ASKPASS
+# helper (mirroring the Windows strategy) instead of falling to paramiko.
+
+LINUX_SSH_EXE: Optional[str] = None
+if platform.system() == "Linux":
+    _linux_ssh = shutil.which("ssh")
+    if _linux_ssh:
+        LINUX_SSH_EXE = _linux_ssh
+        logger.info(f"[real_device_client] Linux OpenSSH: {LINUX_SSH_EXE}")
+
+
+def _ensure_linux_askpass(password: str) -> Optional[str]:
+    """Create a tiny SSH_ASKPASS shell script that echoes `password`.
+
+    Used on Linux where we drive the system `ssh` via SSH_ASKPASS because
+    paramiko's cryptography backend rejects the switch's ssh-dss DSA prime.
+    """
+    path = "/tmp/nw_askpass.sh"
+    try:
+        safe = "'" + password.replace("'", "'\\''") + "'"
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\necho " + safe + "\n")
+        os.chmod(path, 0o700)
+        return path
+    except OSError as e:
+        logger.warning(f"[real_device_client] could not create Linux askpass: {e}")
+        return None
+
+
 # ── Shared helpers ──────────────────────────────────────
 
 def _tcp_check(host: str, port: int, timeout: float = 3.0) -> tuple[bool, Optional[float]]:
@@ -1510,6 +1544,97 @@ class _NativeOpensshSession:
         return ok, out
 
 
+class _LinuxOpensshSession(_NativeOpensshSession):
+    """SSH client backed by the system `ssh` + SSH_ASKPASS on Linux.
+
+    Mirrors _NativeOpensshSession (pump thread + bare CR + pager handling) but
+    drives Linux OpenSSH instead of Windows. Needed because paramiko (via the
+    cryptography backend) rejects the TP-Link IPSSH-6.6.0 ssh-dss host key's
+    non-standard DSA `p`; OpenSSH accepts it. Omits `PubkeyAcceptedAlgorithms`
+    (OpenSSH < 8.5) since we authenticate with password only.
+    """
+
+    def _args_and_env(self):
+        askpass = _ensure_linux_askpass(self.password)
+        if not askpass:
+            raise RuntimeError("could not create Linux SSH_ASKPASS helper")
+        self._askpass_path = askpass
+        args = [
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1",
+            "-o", "HostKeyAlgorithms=+ssh-dss,ssh-rsa",
+            "-o", "Ciphers=+aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc",
+            "-o", "MACs=+hmac-sha1,hmac-sha1-96,hmac-md5,hmac-md5-96",
+            "-o", "NumberOfPasswordPrompts=1",
+            "-o", f"ConnectTimeout={max(int(self.timeout), 5)}",
+            "-o", "ServerAliveInterval=30",
+            "-o", "PreferredAuthentications=password",
+            "-T",
+            "-p", str(self.port),
+            "-l", self.username,
+            self.host,
+        ]
+        env = os.environ.copy()
+        env["SSH_ASKPASS"] = askpass
+        env["SSH_ASKPASS_REQUIRED"] = "force"
+        env["DISPLAY"] = ":0"
+        env["LANG"] = "C"; env["LC_ALL"] = "C"
+        env.pop("SSH_AUTH_SOCK", None)
+        return args, env
+
+    def open(self):
+        attempts = 0
+        total_attempts = 4
+        last_err: Optional[Exception] = None
+        while attempts < total_attempts:
+            attempts += 1
+            try:
+                args, env = self._args_and_env()
+                proc = subprocess.Popen(
+                    args,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=0,
+                    env=env,
+                )
+                self._proc = proc
+                self._buf = bytearray()
+                self._closed = False
+                self._pump = threading.Thread(target=self._reader, daemon=True,
+                                              name=f"linuxssh_{id(self)}")
+                self._pump.start()
+                total, _ = self._collect(
+                    max_wait_s=max(self.timeout + 45, 50),
+                    min_pause_s=0.5,
+                    stop_markers=(b"TL-SG5428>", b"TL-SG5428#"),
+                )
+                if not total:
+                    rc = proc.poll()
+                    raise EOFError(
+                        f"ssh subprocess produced no output before deadline "
+                        f"(exit={rc if rc is not None else 'alive'})"
+                    )
+                self._send(b"enable\r")
+                _ = self._collect(max_wait_s=1.5, min_pause_s=0.4)
+                logger.info(f"[LinuxOpenSSH-{self.host}:{self.port}] session opened")
+                return self
+            except (ConnectionResetError, BrokenPipeError, OSError,
+                    TimeoutError, EOFError) as e:
+                last_err = e
+                try: self.close()
+                except Exception: pass
+                if attempts >= total_attempts:
+                    break
+                time.sleep(1.5 * attempts)
+        if last_err is None:
+            last_err = RuntimeError("linux ssh session open failed (unknown)")
+        raise last_err
+
+
 # ── Telnet (minimal compat) ─────────────────────────────
 
 class _TelnetSession:
@@ -2005,10 +2130,14 @@ class DeviceToolSession:
 def _open_ssh_session(host: str, port: int, username: str, password: str):
     """Open an SSH session using the preferred-available implementation.
 
-    Priority chain (Windows — other platforms fall straight to paramiko):
-      1. Windows inbox OpenSSH + SSH_ASKPASS  (_NativeOpensshSession)
-      2. PuTTY plink.exe                       (_PlinkSession "SSH")
-      3. paramiko (legacy/fallback)            (_SshSession)
+    Priority chain:
+      Windows:
+        1. Windows inbox OpenSSH + SSH_ASKPASS  (_NativeOpensshSession)
+        2. PuTTY plink.exe                       (_PlinkSession "SSH")
+        3. paramiko (legacy/fallback)            (_SshSession)
+      Linux:
+        1. system ssh + SSH_ASKPASS              (_LinuxOpensshSession)
+        2. paramiko (legacy/fallback)            (_SshSession)
 
     Raises the last-seen exception if every option fails.
     """
@@ -2024,6 +2153,18 @@ def _open_ssh_session(host: str, port: int, username: str, password: str):
             logger.debug(
                 f"[_open_ssh_session] OpenSSH failed "
                 f"({e.__class__.__name__}: {e}); trying plink fallback"
+            )
+
+    if platform.system() == "Linux" and LINUX_SSH_EXE:
+        try:
+            return _LinuxOpensshSession(
+                host, int(port), username, password,
+            ).open()
+        except Exception as e:
+            last_err = e
+            logger.debug(
+                f"[_open_ssh_session] Linux OpenSSH failed "
+                f"({e.__class__.__name__}: {e}); trying paramiko fallback"
             )
 
     if PLINK_EXE:
