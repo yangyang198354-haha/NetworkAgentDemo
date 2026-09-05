@@ -12,6 +12,10 @@ import pytest
 
 from src.models.enums import AlertType
 from src.orchestration import node_handlers as nh
+from src.tools.real_device_client import (
+    _tp_link_full_port_name,
+    _normalize_tp_link_commands,
+)
 from src.orchestration.node_handlers import (
     FixCapability,
     RealAccessContext,
@@ -366,3 +370,48 @@ class TestRealWriteWhitelist:
     def test_credential_missing_msg_prohibits_admin123(self):
         # 错误信息仅以「禁止使用」语境提及 admin123，绝不将其作为凭据返回
         assert "禁止使用 admin123 兜底" in REAL_CREDENTIAL_MISSING_MSG
+
+
+# ────────────────────────────────────────────────────────
+# TP-Link 端口名翻译（config-mode `interface` 需要全称）
+# ────────────────────────────────────────────────────────
+
+class TestTpLinkPortNameTranslation:
+    def test_gi_short_to_full(self):
+        assert _tp_link_full_port_name("Gi1/0/2") == "gigabitEthernet 1/0/2"
+
+    def test_te_and_fa(self):
+        assert _tp_link_full_port_name("Te1/0/1") == "ten-gigabitEthernet 1/0/1"
+        assert _tp_link_full_port_name("fa1/0/1") == "fastEthernet 1/0/1"
+
+    def test_case_insensitive(self):
+        assert _tp_link_full_port_name("gi1/0/2") == "gigabitEthernet 1/0/2"
+        assert _tp_link_full_port_name("GI1/0/2") == "gigabitEthernet 1/0/2"
+
+    def test_whitespace_tolerance(self):
+        assert _tp_link_full_port_name(" Gi1/0/2 ") == "gigabitEthernet 1/0/2"
+
+    def test_non_matching_passthrough(self):
+        assert _tp_link_full_port_name("gigabitEthernet 1/0/2") == "gigabitEthernet 1/0/2"
+        assert _tp_link_full_port_name("Gi1/0/2/0") == "Gi1/0/2/0"
+
+    def test_normalize_rewrites_interface_line(self):
+        cmds = ["interface Gi1/0/2", "shutdown"]
+        assert _normalize_tp_link_commands(cmds) == [
+            "interface gigabitEthernet 1/0/2",
+            "shutdown",
+        ]
+
+    def test_normalize_leaves_other_commands_untouched(self):
+        cmds = ["configure", "no shutdown", "exit", "show interface status"]
+        assert _normalize_tp_link_commands(cmds) == cmds
+
+    def test_normalize_idempotent(self):
+        once = _normalize_tp_link_commands(["interface Gi1/0/2"])
+        twice = _normalize_tp_link_commands(once)
+        assert twice == ["interface gigabitEthernet 1/0/2"]
+
+    def test_normalize_does_not_mutate_original(self):
+        cmds = ["interface Gi1/0/2"]
+        _normalize_tp_link_commands(cmds)
+        assert cmds == ["interface Gi1/0/2"]

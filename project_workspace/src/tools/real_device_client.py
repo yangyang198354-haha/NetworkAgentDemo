@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import select
 import shutil
 import socket
@@ -922,6 +923,7 @@ class _PlinkSession:
 
     def configure(self, commands: list[str]) -> tuple[int, int, str]:
         """Enter configure-mode-style state, run each command, exit."""
+        commands = _normalize_tp_link_commands(commands)
         success = 0
         errors = 0
         log_lines: list[str] = []
@@ -1199,6 +1201,7 @@ class _SshSession:
           - Save config with `copy running-config startup-config` from enable mode
             (NOT `write memory`, NOT from inside config)
         """
+        commands = _normalize_tp_link_commands(commands)
         output: list[str] = []
         executed = 0
         failed = 0
@@ -1512,6 +1515,7 @@ class _NativeOpensshSession:
         )
 
     def configure(self, commands: list[str]) -> tuple[int, int, str]:
+        commands = _normalize_tp_link_commands(commands)
         out_lines: list[str] = []
         exec_ = 0
         fail = 0
@@ -1924,6 +1928,7 @@ class _TelnetSession:
         """TP-Link TL-SG5428-compatible configure (telnet flavor).
         Saves are performed explicitly via save() (after exiting configure).
         """
+        commands = _normalize_tp_link_commands(commands)
         out_lines: list[str] = []
         exec_ = 0
         fail = 0
@@ -1960,6 +1965,38 @@ class _TelnetSession:
 
 
 # ── Output cleaning ─────────────────────────────────────
+
+def _tp_link_full_port_name(name: str) -> str:
+    """TP-Link short port name (Gi1/0/2) → full config-mode name
+    (gigabitEthernet 1/0/2). `show interface status` prints the short form, but
+    the config-mode `interface` command requires the long form. Non-matching
+    names pass through unchanged (idempotent).
+    """
+    m = re.match(r"^(gi|te|fa)\s*(\d+)/(\d+)/(\d+)$", (name or "").strip(), re.IGNORECASE)
+    if not m:
+        return name
+    kind = m.group(1).lower()
+    full = {
+        "gi": "gigabitEthernet",
+        "te": "ten-gigabitEthernet",
+        "fa": "fastEthernet",
+    }.get(kind)
+    if not full:
+        return name
+    return f"{full} {m.group(2)}/{m.group(3)}/{m.group(4)}"
+
+
+def _normalize_tp_link_commands(commands: list[str]) -> list[str]:
+    """Rewrite `interface <short-port>` → `interface <full-port>` for TP-Link
+    config mode, leaving every other command untouched."""
+    out: list[str] = []
+    for c in commands:
+        c = (c or "").strip()
+        if c.lower().startswith("interface "):
+            c = "interface " + _tp_link_full_port_name(c[len("interface "):])
+        out.append(c)
+    return out
+
 
 def _looks_like_error(output: str) -> bool:
     if not output:
