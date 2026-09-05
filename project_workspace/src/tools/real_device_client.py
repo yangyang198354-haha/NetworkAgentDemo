@@ -969,6 +969,55 @@ class _PlinkSession:
             errors += 1
         return success, errors, "\n".join(log_lines)
 
+    def configure_records(self, commands: list[str]) -> list[dict]:
+        """单会话批量下发，返回逐命令结果（interface + shutdown 需同会话）。"""
+        commands = _normalize_tp_link_commands(commands)
+        records: list[dict] = []
+        try:
+            assert self._proc is not None and self._proc.stdin is not None
+            for cmd in commands:
+                c = cmd.strip()
+                if not c or c.startswith("!"):
+                    continue
+                self._proc.stdin.write(
+                    c.encode("ascii", errors="replace") + self._term)
+                self._proc.stdin.flush()
+                per_cmd_deadline = time.monotonic() + max(10.0, 3.0)
+                while time.monotonic() < per_cmd_deadline:
+                    self._read_some(min(per_cmd_deadline,
+                                        time.monotonic() + 0.5))
+                    with self._buf_lock:
+                        decoded = self._buf.decode(
+                            "utf-8", errors="replace").lower()
+                    if "confirm to overwrite" in decoded or "[y/n]" in decoded:
+                        try:
+                            self._proc.stdin.write(b"y" + self._term)
+                            self._proc.stdin.flush()
+                        except Exception:
+                            pass
+                        time.sleep(0.8)
+                        continue
+                    lines = [ln for ln in decoded.splitlines() if ln.strip()]
+                    last = lines[-1].rstrip() if lines else ""
+                    if last.endswith("#") or last.endswith(")#") or \
+                            "error" in decoded:
+                        break
+                    time.sleep(0.1)
+                with self._buf_lock:
+                    out = self._buf.decode("utf-8", errors="replace")
+                    self._buf = b""
+                records.append({
+                    "command": c,
+                    "success": not _looks_like_error(out),
+                    "output": out,
+                    "error": None,
+                })
+        except (BrokenPipeError, ConnectionResetError, OSError,
+                subprocess.SubprocessError) as e:
+            records.append({"command": "(aborted)", "success": False,
+                            "output": "", "error": str(e)})
+        return records
+
 
 class _SshSession:
     """Tiny paramiko shell wrapper around a single channel."""
@@ -1225,6 +1274,30 @@ class _SshSession:
         r = self.send("exit", wait=0.6)
         output.append(r)
         return executed, failed, "\n".join(output)
+
+    def configure_records(self, commands: list[str]) -> list[dict]:
+        """单会话批量下发，返回逐命令结果（interface + shutdown 需同会话）。"""
+        commands = _normalize_tp_link_commands(commands)
+        # Ensure enable mode first
+        if self._privilege != "#":
+            r = self.send("enable", wait=0.6)
+            if "#" in r[-40:] or r.rstrip().endswith("#"):
+                self._privilege = "#"
+        self.send("configure", wait=0.7)
+        records: list[dict] = []
+        for cmd in commands:
+            c = cmd.strip()
+            if not c or c.startswith("!"):
+                continue
+            r = self.send(c, wait=0.9, max_wait=15)
+            records.append({
+                "command": c,
+                "success": not _looks_like_error(r),
+                "output": r,
+                "error": None,
+            })
+        self.send("exit", wait=0.6)
+        return records
 
     def save(self) -> tuple[bool, str]:
         """Persist running-config to startup-config from enable mode.
@@ -1532,6 +1605,26 @@ class _NativeOpensshSession:
                 fail += 1
         out_lines.append(self.send("exit", wait=0.6, max_wait=3))
         return exec_, fail, "\n".join(out_lines)
+
+    def configure_records(self, commands: list[str]) -> list[dict]:
+        """单会话批量下发，返回逐命令结果（interface + shutdown 需同会话）。"""
+        commands = _normalize_tp_link_commands(commands)
+        self.send("enable", wait=0.6, max_wait=3)
+        self.send("configure", wait=0.7, max_wait=3)
+        records: list[dict] = []
+        for cmd in commands:
+            c = cmd.strip()
+            if not c or c.startswith("!"):
+                continue
+            r = self.send(c, wait=0.9, max_wait=15)
+            records.append({
+                "command": c,
+                "success": not _looks_like_error(r),
+                "output": r,
+                "error": None,
+            })
+        self.send("exit", wait=0.6, max_wait=3)
+        return records
 
     def save(self) -> tuple[bool, str]:
         try:
@@ -1946,6 +2039,31 @@ class _TelnetSession:
         # Exit config mode (leave enable mode for save() call)
         out_lines.append(self._run_cmd("exit", wait=0.6))
         return exec_, fail, "\n".join(out_lines)
+
+    def configure_records(self, commands: list[str]) -> list[dict]:
+        """单会话批量下发，返回逐命令结果。
+
+        `interface gigabitEthernet 1/0/2` + `shutdown` 必须在同一 config 会话
+        内连续执行（后者仅在 config-if 模式有效），逐命令各开一个会话会把
+        `shutdown` 落到全局 config 模式导致 "Error: Bad command"。
+        """
+        commands = _normalize_tp_link_commands(commands)
+        self._run_cmd("enable", wait=0.8)
+        self._run_cmd("configure", wait=0.7)
+        records: list[dict] = []
+        for cmd in commands:
+            c = cmd.strip()
+            if not c or c.startswith("!"):
+                continue
+            r = self._run_cmd(c, wait=0.9)
+            records.append({
+                "command": c,
+                "success": not _looks_like_error(r),
+                "output": r,
+                "error": None,
+            })
+        self._run_cmd("exit", wait=0.6)
+        return records
 
     def save(self) -> tuple[bool, str]:
         """Persist running-config to startup-config from enable mode."""

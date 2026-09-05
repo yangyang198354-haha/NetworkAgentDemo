@@ -15,6 +15,7 @@ from src.orchestration import node_handlers as nh
 from src.tools.real_device_client import (
     _tp_link_full_port_name,
     _normalize_tp_link_commands,
+    _TelnetSession,
 )
 from src.orchestration.node_handlers import (
     FixCapability,
@@ -415,3 +416,57 @@ class TestTpLinkPortNameTranslation:
         cmds = ["interface Gi1/0/2"]
         _normalize_tp_link_commands(cmds)
         assert cmds == ["interface Gi1/0/2"]
+
+
+# ────────────────────────────────────────────────────────
+# 单会话批量下发（interface + shutdown 必须同会话）
+# ────────────────────────────────────────────────────────
+
+class TestConfigureRecordsSingleSession:
+    def _session(self):
+        s = _TelnetSession("h", 23, "u", "p", timeout=1.0)
+        calls: list[str] = []
+        outputs = {
+            "enable": "TL-SG5428#",
+            "configure": "TL-SG5428(config)#",
+            "interface gigabitEthernet 1/0/2": "TL-SG5428(config-if)#",
+            "shutdown": "TL-SG5428(config-if)#",
+            "exit": "TL-SG5428(config)#",
+        }
+
+        def _fake_run_cmd(cmd, wait=0.8, max_wait=15.0):
+            calls.append(cmd)
+            return outputs.get(cmd, f"echo {cmd}")
+
+        s._run_cmd = _fake_run_cmd
+        return s, calls
+
+    def test_batches_all_commands_in_one_session(self):
+        s, calls = self._session()
+        records = s.configure_records(["interface Gi1/0/2", "shutdown"])
+        # 单会话：enable → configure → 两条命令 → exit（各仅一次）
+        assert calls == [
+            "enable",
+            "configure",
+            "interface gigabitEthernet 1/0/2",
+            "shutdown",
+            "exit",
+        ]
+        assert len(records) == 2
+        assert records[0]["command"] == "interface gigabitEthernet 1/0/2"
+        assert records[1]["command"] == "shutdown"
+        assert all(r["success"] for r in records)
+
+    def test_marks_error_commands_failed(self):
+        s, calls = self._session()
+        s._run_cmd = lambda cmd, wait=0.8, max_wait=15.0: (
+            "Error: Bad command" if cmd == "shutdown" else f"echo {cmd}"
+        )
+        records = s.configure_records(["interface Gi1/0/2", "shutdown"])
+        assert records[0]["success"] is True
+        assert records[1]["success"] is False
+
+    def test_skips_blank_and_comment_commands(self):
+        s, calls = self._session()
+        records = s.configure_records(["! comment", "", "shutdown"])
+        assert [r["command"] for r in records] == ["shutdown"]

@@ -1355,22 +1355,49 @@ class NodeHandlers:
                     "_error_message": f"REAL 写操作端口越权: {target_port}",
                 }
 
-        for cmd in commands:
-            record = self._execute_single_command(device_ip, cmd, auth, device_type)
-            exec_log.append(record)
+        if device_type == "REAL" and commands:
+            # ADR-RE-006: interface + shutdown/no shutdown 必须在同一 config 会话
+            # 连续执行，逐条各开一个会话会把 shutdown 落到全局 config 模式。
+            from src.tools.switch_config_tool import create_switch_config_tool
+            config_tool = create_switch_config_tool(device_type="REAL")
+            for rec in config_tool.run_records(device_ip, commands, auth):
+                record = {
+                    "command": rec.get("command", ""),
+                    "success": rec.get("success", False),
+                    "output": rec.get("output", ""),
+                    "error": rec.get("error"),
+                    "execution_time_ms": 500,
+                    "was_idempotent_skip": False,
+                }
+                exec_log.append(record)
+                self.audit_logger.log_audit_event(
+                    event_type=AuditEventType.CONFIG_CHANGE,
+                    alert_id=state.get("alert_id", ""),
+                    operator="auto_agent",
+                    action="configure",
+                    detail={
+                        "command": record["command"],
+                        "success": record["success"],
+                        "device_ip": device_ip,
+                    },
+                )
+        else:
+            for cmd in commands:
+                record = self._execute_single_command(device_ip, cmd, auth, device_type)
+                exec_log.append(record)
 
-            # 审计日志：配置变更
-            self.audit_logger.log_audit_event(
-                event_type=AuditEventType.CONFIG_CHANGE,
-                alert_id=state.get("alert_id", ""),
-                operator="auto_agent",
-                action="configure",
-                detail={
-                    "command": cmd,
-                    "success": record.get("success", False),
-                    "device_ip": device_ip,
-                },
-            )
+                # 审计日志：配置变更
+                self.audit_logger.log_audit_event(
+                    event_type=AuditEventType.CONFIG_CHANGE,
+                    alert_id=state.get("alert_id", ""),
+                    operator="auto_agent",
+                    action="configure",
+                    detail={
+                        "command": cmd,
+                        "success": record.get("success", False),
+                        "device_ip": device_ip,
+                    },
+                )
 
         all_success = all(r.get("success", False) for r in exec_log)
         logger.info(f"execute_fix: {len(exec_log)} commands, all_success={all_success}")

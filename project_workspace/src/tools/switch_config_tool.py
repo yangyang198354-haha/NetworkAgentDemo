@@ -198,6 +198,49 @@ class TpLinkSwitchConfigTool(AbstractSwitchConfigTool):
             commands_failed=failed,
         )
 
+    def run_records(self, device_ip: str, commands: list[str],
+                    auth: DeviceAuth) -> list[dict]:
+        """单会话批量下发并返回逐命令结果（interface + shutdown 需同会话）。
+
+        返回形如 [{"command","success","output","error"}] 的列表，供 execute_fix
+        构造逐命令 exec_log。区别于 `_run`（返回 ConfigResult 汇总）。
+        """
+        from src.tools.real_device_client import _SshSession, _TelnetSession
+        from src.tools.real_session_gate import session_guard_by_access
+
+        if not commands:
+            return []
+
+        port = int(getattr(auth, "port", None) or auth.ssh_port or 22)
+        protocol = (getattr(auth, "protocol", None) or "SSH").upper()
+        username = auth.username or "admin"
+        password = auth.password or ""
+
+        with session_guard_by_access(device_ip, port, protocol):
+            try:
+                if protocol == "SSH":
+                    sess = _SshSession(device_ip, port, username, password).open()
+                elif protocol == "TELNET":
+                    sess = _TelnetSession(device_ip, port, username, password).open()
+                else:
+                    raise ValueError(f"Unsupported protocol {protocol}")
+            except Exception as e:
+                logger.exception(f"[TpLinkConfig] connect failed")
+                return [{
+                    "command": c,
+                    "success": False,
+                    "output": "",
+                    "error": f"Connect failed ({protocol} {device_ip}:{port}): {e.__class__.__name__}: {e}",
+                } for c in commands]
+
+            try:
+                return sess.configure_records(commands)
+            finally:
+                try:
+                    sess.close()
+                except Exception:
+                    pass
+
 
 # ────────────────────────────────────────────────────
 # Factory

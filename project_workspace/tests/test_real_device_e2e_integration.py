@@ -228,21 +228,31 @@ class TestHandleExecuteFixRealWhitelist:
 
     def test_authorized_port_executes(self, monkeypatch):
         handlers = _make_handlers()
-        calls = []
-        def _fake_exec(device_ip, cmd, auth, device_type):
-            calls.append(cmd)
-            return {"command": cmd, "success": True, "output": "ok", "error": None,
-                    "execution_time_ms": 1, "was_idempotent_skip": False}
-        monkeypatch.setattr(handlers, "_execute_single_command", _fake_exec)
+        sent = []
+        cmds = ["interface Gi1/0/2", "no shutdown"]
+
+        class _FakeTool:
+            def run_records(self, device_ip, commands, auth):
+                sent.append(list(commands))
+                return [{"command": c, "success": True, "output": "ok",
+                         "error": None} for c in commands]
+
+        monkeypatch.setattr(
+            "src.tools.switch_config_tool.create_switch_config_tool",
+            lambda **k: _FakeTool(),
+        )
         state = _real_state(
-            fix_plan={"commands": ["interface Gi1/0/2", "no shutdown"],
+            fix_plan={"commands": cmds,
                       "template_id": "TPL-PORT-ENABLE", "params": {}},
             device_info={"device_name": "TL-SG5428-核心交换机", "device_type": "REAL",
                          "interface_name": "Gi1/0/2"},
         )
         out = handlers.handle_execute_fix(state)
         assert "status" not in out or out.get("status") != "FAILED"
-        assert len(calls) == 2
+        # 关键回归断言：interface + no shutdown 必须在**同一会话**一次性下发
+        assert sent == [cmds], "REAL 写命令必须单会话批量下发（不能逐条分会话）"
+        assert len(out["exec_log"]) == 2
+        assert all(r["success"] for r in out["exec_log"])
 
 
 # ────────────────────────────────────────────────────────
