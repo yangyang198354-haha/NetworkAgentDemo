@@ -81,11 +81,16 @@ class TestSwitchConfigTool:
         tool = create_switch_config_tool(use_mock=False)
         assert isinstance(tool, TpLinkSwitchConfigTool)
 
-    def test_tplink_raises_not_implemented(self):
-        """TpLink implementation should raise NotImplementedError."""
+    def test_tplink_connection_failure(self):
+        """TpLink real implementation should return success=False when SSH connection fails."""
+        from unittest.mock import patch
         tool = TpLinkSwitchConfigTool()
-        with pytest.raises(NotImplementedError):
-            tool._run("192.168.1.1", ["show version"], self.auth)
+        with patch("src.tools.real_device_client._SshSession") as mock_ssh:
+            mock_ssh.return_value.open.side_effect = ConnectionRefusedError("refused")
+            result = tool._run("192.168.1.1", ["show version"], self.auth)
+        assert isinstance(result, ConfigResult)
+        assert result.success is False
+        assert result.commands_failed == 1
 
     def test_abstract_class_exists(self):
         """Abstract base class should be importable."""
@@ -166,11 +171,15 @@ class TestSwitchDiagTool:
         tool = create_switch_diag_tool(use_mock=False)
         assert isinstance(tool, TpLinkSwitchDiagTool)
 
-    def test_tplink_raises_not_implemented(self):
-        """TpLink implementation should raise NotImplementedError."""
+    def test_tplink_connection_failure(self):
+        """TpLink real implementation should return success=False when SSH connection fails."""
+        from unittest.mock import patch
         tool = TpLinkSwitchDiagTool()
-        with pytest.raises(NotImplementedError):
-            tool._run("192.168.1.1", "show version", self.auth)
+        with patch("src.tools.real_device_client._SshSession") as mock_ssh:
+            mock_ssh.return_value.open.side_effect = ConnectionRefusedError("refused")
+            result = tool._run("192.168.1.1", "show version", self.auth)
+        assert isinstance(result, DiagResult)
+        assert result.success is False
 
 
 # ═══════════════════════════════════════════════════════
