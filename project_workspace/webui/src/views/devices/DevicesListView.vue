@@ -57,6 +57,7 @@
             <template v-if="row.device_type === 'REAL'">
               <el-button text type="success" :loading="heartbeatIds.includes(row.id)" @click="handleHeartbeat(row)">心跳检测</el-button>
               <el-button text type="primary" :loading="checkingIds.includes(row.id)" @click="handleCheckConnectivity(row)">连通性检测</el-button>
+              <el-button text type="primary" @click="showRealPanel(row)">面板</el-button>
             </template>
             <template v-if="row.device_type === 'SIMULATOR'">
               <el-button v-if="row.simulator_status !== 'RUNNING'"
@@ -202,6 +203,85 @@
         </el-card>
       </template>
     </el-drawer>
+
+    <!-- REAL Panel Drawer (REQ-RP-FUNC-008 / MOD-RP-005) -->
+    <el-drawer v-model="realPanelVisible" :title="`真实设备面板 — ${realPanelDevice?.device_name || ''}`"
+      size="480px" direction="rtl">
+      <template v-if="realPanelDevice">
+        <!-- Basic Info (Should Have, 容错：无 info 时隐藏) -->
+        <el-card v-if="realPanelData?.info" shadow="never" class="sim-section">
+          <template #header>
+            <div class="section-header"><span>基本信息</span></div>
+          </template>
+          <div class="sys-grid">
+            <div class="sys-item"><span class="sys-label">设备名</span><span class="sys-value">{{ realPanelData.info.device_name || '-' }}</span></div>
+            <div class="sys-item"><span class="sys-label">型号</span><span class="sys-value">{{ realPanelData.info.model || '-' }}</span></div>
+            <div class="sys-item"><span class="sys-label">硬件版本</span><span class="sys-value">{{ realPanelData.info.hardware_version || '-' }}</span></div>
+            <div class="sys-item"><span class="sys-label">软件版本</span><span class="sys-value">{{ realPanelData.info.software_version || '-' }}</span></div>
+          </div>
+        </el-card>
+
+        <!-- Port Status -->
+        <el-card shadow="never" class="sim-section">
+          <template #header>
+            <div class="section-header">
+              <span>端口状态</span>
+              <el-button size="small" type="primary" @click="loadRealPanel" :loading="realPanelLoading">刷新</el-button>
+            </div>
+          </template>
+          <el-table :data="realPanelData?.ports || []" size="small" max-height="300" v-if="realPanelData?.ports?.length">
+            <el-table-column prop="name" label="端口" width="80" />
+            <el-table-column prop="status" label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag :type="realPortStatusType(row.status)" size="small">{{ row.status }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="vlan" label="VLAN" width="55" />
+            <el-table-column prop="speed" label="速率" width="55" />
+            <el-table-column label="操作" width="110">
+              <template #default="{ row }">
+                <el-button text size="small" type="primary" @click="confirmRealPortAction(row.name, 'no-shutdown')">启用</el-button>
+                <el-button text size="small" type="danger" @click="confirmRealPortAction(row.name, 'shutdown')">禁用</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else-if="!realPanelLoading" description="暂无端口数据" :image-size="60" />
+        </el-card>
+
+        <!-- System Resources -->
+        <el-card shadow="never" class="sim-section">
+          <template #header>
+            <div class="section-header"><span>系统资源</span></div>
+          </template>
+          <div v-if="realPanelData" class="sys-grid">
+            <div class="sys-item">
+              <span class="sys-label">CPU (5s)</span>
+              <el-progress :percentage="realPanelData.cpu?.cpu_5s || 0" :color="cpuColor(realPanelData.cpu?.cpu_5s)"
+                :stroke-width="14" />
+              <span class="sys-value">{{ realPanelData.cpu?.cpu_5s }}%</span>
+            </div>
+            <div class="sys-item">
+              <span class="sys-label">内存</span>
+              <el-progress :percentage="realPanelData.memory?.usage_pct || 0" :color="cpuColor(realPanelData.memory?.usage_pct)"
+                :stroke-width="14" />
+              <span class="sys-value">{{ realPanelData.memory?.used_mb }} / {{ realPanelData.memory?.total_mb }} MB</span>
+            </div>
+            <div class="sys-item">
+              <span class="sys-label">IO 读</span>
+              <span class="sys-value">{{ ioText(realPanelData.io, 'read') }}</span>
+            </div>
+            <div class="sys-item">
+              <span class="sys-label">IO 写</span>
+              <span class="sys-value">{{ ioText(realPanelData.io, 'write') }}</span>
+            </div>
+          </div>
+          <el-empty v-else-if="!realPanelLoading" description="暂无系统资源数据" :image-size="60" />
+        </el-card>
+
+        <!-- Loading hint -->
+        <div v-if="realPanelLoading" class="real-loading-hint">真实设备采集中（约 30-60s，请耐心等待）...</div>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -246,6 +326,13 @@ const sysLoading = ref(false)
 // 按钮loading状态：REAL 心跳/连通性检测
 const heartbeatIds = ref<number[]>([])
 const checkingIds = ref<number[]>([])
+
+// ── REAL Panel (MOD-RP-005) ────────────────────────────
+const realPanelVisible = ref(false)
+const realPanelDevice = ref<any>(null)
+const realPanelData = ref<any>(null)
+const realPanelLoading = ref(false)
+let realPanelFailSafe: ReturnType<typeof setTimeout> | null = null
 
 const hasSimulators = computed(() =>
   store.deviceList.some((d: any) => d.device_type === 'SIMULATOR')
@@ -478,6 +565,79 @@ async function portAction(portName: string, action: string) {
   }
 }
 
+// ── REAL Panel (MOD-RP-005) ────────────────────────────
+
+async function showRealPanel(row: any) {
+  realPanelDevice.value = row
+  realPanelData.value = null
+  realPanelVisible.value = true
+  await loadRealPanel()
+}
+
+async function loadRealPanel() {
+  if (!realPanelDevice.value) return
+  realPanelLoading.value = true
+  const hintClose = ElMessage({
+    type: 'info',
+    message: '真实设备采集中（约 30-60s，请耐心等待）...',
+    duration: 0,
+    showClose: true,
+  })
+  // fail-safe：125s 后强制解除 loading（比 axios 120s timeout 宽限）
+  if (realPanelFailSafe) clearTimeout(realPanelFailSafe)
+  realPanelFailSafe = setTimeout(() => {
+    realPanelLoading.value = false
+    try { hintClose?.close() } catch { /* ignore */ }
+  }, 125000)
+  try {
+    const resp = await store.getRealPanel(realPanelDevice.value.id)
+    realPanelData.value = resp
+  } catch (e: any) {
+    realPanelData.value = null
+    ElMessage.error(e?.response?.data?.detail || '无法加载真实设备面板数据')
+  } finally {
+    if (realPanelFailSafe) clearTimeout(realPanelFailSafe)
+    realPanelFailSafe = null
+    realPanelLoading.value = false
+    try { hintClose?.close() } catch { /* ignore */ }
+  }
+}
+
+async function confirmRealPortAction(portName: string, action: string) {
+  if (!realPanelDevice.value) return
+  const actionLabel = action === 'shutdown' ? '禁用（shutdown）' : '启用（no shutdown）'
+  try {
+    await ElMessageBox.confirm(
+      `此操作将修改真实生产设备配置。目标端口：${portName}，动作：${actionLabel}。确认继续？`,
+      '确认端口操作',
+      { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  try {
+    const resp = await store.configurePort(realPanelDevice.value.id, portName, action, undefined, 120000)
+    ElMessage.success(resp.message || `${action} ${portName} 成功`)
+    await loadRealPanel()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || `${action} 失败`)
+  }
+}
+
+function realPortStatusType(status: string): string {
+  if (status === 'up') return 'success'
+  if (status && status.includes('down')) return 'danger'
+  return 'info'
+}
+
+function ioText(io: any, key: 'read' | 'write'): string {
+  const field = key === 'read' ? 'read_kbps' : 'write_kbps'
+  if (!io || io.supported === false || io[field] === null || io[field] === undefined) {
+    return io?.message || '该设备不支持 IO 采集'
+  }
+  return `${io[field]} KB/s`
+}
+
 // ── Helpers ────────────────────────────────────────────
 
 function statusTagType(status: string): string {
@@ -520,4 +680,5 @@ function formatTime(t: string) {
 .sys-item { display: flex; flex-direction: column; gap: 4px; }
 .sys-label { font-size: 13px; color: #606266; }
 .sys-value { font-size: 13px; color: #303133; margin-top: 2px; }
+.real-loading-hint { margin-top: 16px; text-align: center; font-size: 13px; color: #909399; }
 </style>

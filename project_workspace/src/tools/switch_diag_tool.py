@@ -250,6 +250,7 @@ class TpLinkSwitchDiagTool(AbstractSwitchDiagTool):
         alert_id: str = "",
     ) -> DiagResult:
         from src.tools.real_device_client import _SshSession, _TelnetSession
+        from src.tools.real_session_gate import session_guard_by_access
 
         if not command:
             return DiagResult(success=False, output="Empty command",
@@ -262,37 +263,39 @@ class TpLinkSwitchDiagTool(AbstractSwitchDiagTool):
         password = auth.password or ""
         logger.info(f"[TpLinkDiag] {device_ip}:{port} proto={protocol} cmd={command!r}")
 
-        try:
-            if protocol == "SSH":
-                sess = _SshSession(device_ip, port, username, password).open()
-            elif protocol == "TELNET":
-                sess = _TelnetSession(device_ip, port, username, password).open()
-            else:
-                return DiagResult(success=False,
-                                  output=f"Unsupported protocol: {protocol}",
-                                  execution_time_ms=0)
-        except Exception as e:
-            logger.exception("[TpLinkDiag] connect failed")
-            return DiagResult(
-                success=False,
-                output=f"Connect failed ({protocol} {device_ip}:{port}): {e.__class__.__name__}: {e}",
-                execution_time_ms=int((time.perf_counter() - start) * 1000),
-            )
-
-        try:
-            output = sess.show(command)
-        except Exception as e:
-            logger.exception("[TpLinkDiag] command execution failed")
-            return DiagResult(
-                success=False,
-                output=f"Command execution failed: {e.__class__.__name__}: {e}",
-                execution_time_ms=int((time.perf_counter() - start) * 1000),
-            )
-        finally:
+        # NFUNC-004: 工作流诊断会话与面板/连通性/写操作串行化（仅包裹门，不改会话逻辑）
+        with session_guard_by_access(device_ip, port, protocol):
             try:
-                sess.close()
-            except Exception:
-                pass
+                if protocol == "SSH":
+                    sess = _SshSession(device_ip, port, username, password).open()
+                elif protocol == "TELNET":
+                    sess = _TelnetSession(device_ip, port, username, password).open()
+                else:
+                    return DiagResult(success=False,
+                                      output=f"Unsupported protocol: {protocol}",
+                                      execution_time_ms=0)
+            except Exception as e:
+                logger.exception("[TpLinkDiag] connect failed")
+                return DiagResult(
+                    success=False,
+                    output=f"Connect failed ({protocol} {device_ip}:{port}): {e.__class__.__name__}: {e}",
+                    execution_time_ms=int((time.perf_counter() - start) * 1000),
+                )
+
+            try:
+                output = sess.show(command)
+            except Exception as e:
+                logger.exception("[TpLinkDiag] command execution failed")
+                return DiagResult(
+                    success=False,
+                    output=f"Command execution failed: {e.__class__.__name__}: {e}",
+                    execution_time_ms=int((time.perf_counter() - start) * 1000),
+                )
+            finally:
+                try:
+                    sess.close()
+                except Exception:
+                    pass
 
         elapsed = int((time.perf_counter() - start) * 1000)
         success = True

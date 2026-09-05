@@ -91,18 +91,27 @@ export const useDevicesStore = defineStore('devices', () => {
     return resp
   }
 
-  async function configurePort(deviceId: number, portName: string, action: string, value?: string) {
+  async function configurePort(deviceId: number, portName: string, action: string, value?: string, timeoutMs?: number) {
     // encodeURIComponent: port names contain "/" (e.g., "Gi0/1"), which must be
     // escaped in the URL path so FastAPI correctly captures the full name.
+    // timeoutMs 可选：SIMULATOR 不传（默认超时，向后兼容）；REAL 传 120000（长会话）。
     const resp: any = await client.post(`/api/devices/${deviceId}/ports/${encodeURIComponent(portName)}/config`, {
       action,
       value: value || null,
-    })
+    }, timeoutMs ? { timeout: timeoutMs } : {})
     return resp
   }
 
   async function getDeviceSystem(deviceId: number) {
     const resp: any = await client.get(`/api/devices/${deviceId}/system`)
+    return resp
+  }
+
+  // ── REAL device: panel aggregate read (single-session batch collection). ──
+  // Same long per-request timeout as checkConnectivity: a full session round-trip
+  // (login → enable → multiple show commands) can take 30-60s.
+  async function getRealPanel(deviceId: number) {
+    const resp: any = await client.get(`/api/devices/${deviceId}/real_panel`, { timeout: 120000 })
     return resp
   }
 
@@ -112,5 +121,6 @@ export const useDevicesStore = defineStore('devices', () => {
     configureCredentials, fetchDiagnostics,
     startSimulator, stopSimulator, getSimulatorStatus,
     heartbeat, checkConnectivity, getDevicePorts, configurePort, getDeviceSystem,
+    getRealPanel,
   }
 })

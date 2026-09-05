@@ -14,7 +14,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from src.api.dependencies import get_db
+from loguru import logger
+
+from src.api.dependencies import get_db, get_current_user
+from src.database.auth_models import User
 from src.database.repositories.device_repository import DeviceRepository
 
 devices_router = APIRouter()
@@ -502,6 +505,7 @@ def device_check_connectivity(device_id: int, db: Session = Depends(get_db)):
         }
 
     from src.tools.real_device_client import check_connectivity as _l7_check
+    from src.tools.real_session_gate import session_guard
 
     username = device.credential.ssh_username
     password = _decrypt_password(device)
@@ -513,7 +517,9 @@ def device_check_connectivity(device_id: int, db: Session = Depends(get_db)):
             "message": "无法解密凭据，encryption_service 未初始化或密码损坏",
         }
 
-    report = _l7_check(device, username, password)
+    # NFUNC-004: 连通性检测会话与面板/写操作/工作流会话串行化
+    with session_guard(device):
+        report = _l7_check(device, username, password)
     repo_update = {}
     if report.ok:
         repo_update["status"] = "ONLINE"
@@ -539,6 +545,53 @@ def device_check_connectivity(device_id: int, db: Session = Depends(get_db)):
         "device_model": report.model or device.device_model,
         "software_version": report.software_version,
     }
+
+
+# ═══════════════════════════════════════════════════════════
+# REAL-DEVICE-PANEL (MOD-RP-001): 真实设备面板聚合只读端点
+# ═══════════════════════════════════════════════════════════
+
+@devices_router.get("/{device_id}/real_panel")
+def get_real_panel(
+    device_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    IFC-RP-001-01: REAL 专用聚合只读端点。
+
+    单会话批量采集端口状态/CPU/内存/IO(降级)/基本信息(容错)，
+    凭据解密复用 `_decrypt_password`，错误转换为明确 HTTP 错误。
+    鉴权由 `/api` 前缀的 router 级 `Depends(get_current_user)` 统一提供。
+    """
+    repo = DeviceRepository(db)
+    device = repo.get_device_by_id(device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    if device.device_type != "REAL":
+        raise HTTPException(status_code=400, detail="/real_panel 仅适用于 REAL 真实设备")
+    if not device.credential:
+        raise HTTPException(status_code=400, detail="该 REAL 设备还未配置凭据")
+
+    username = device.credential.ssh_username
+    password = _decrypt_password(device)
+    if password is None:
+        raise HTTPException(status_code=400, detail="无法解密凭据，encryption_service 未初始化或密码损坏")
+
+    from src.tools.real_panel_service import collect_real_panel
+    from src.tools.real_panel_parsers import RealPanelError
+
+    try:
+        snapshot = collect_real_panel(device, username, password)
+    except RealPanelError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"面板采集失败（{e.section}）: {e.reason}",
+        )
+    except Exception as e:
+        logger.exception("real_panel collection failed")
+        raise HTTPException(status_code=502, detail=f"面板采集失败: {type(e).__name__}: {e}")
+
+    return snapshot
 
 
 # ── REAL 设备：通过 Telnet 远程启用 SSH 服务 ─────────────
@@ -677,17 +730,85 @@ def get_device_ports(device_id: int, db: Session = Depends(get_db)):
     }
 
 
+def _configure_real_port(
+    device_id: int,
+    device,
+    port_name: str,
+    action: str,
+    current_user: User,
+) -> dict:
+    """IFC-RP-001-02 REAL 分支：configure 下发端口启用/禁用 + 审计（不 save，AC-RP-005-03）。"""
+    if action not in ("shutdown", "no-shutdown"):
+        raise HTTPException(status_code=400, detail="REAL 设备仅支持 shutdown / no-shutdown 端口操作")
+
+    if not device.credential:
+        raise HTTPException(status_code=400, detail="该 REAL 设备还未配置凭据")
+
+    username = device.credential.ssh_username
+    password = _decrypt_password(device)
+    if password is None:
+        raise HTTPException(status_code=400, detail="无法解密凭据，encryption_service 未初始化或密码损坏")
+
+    from src.tools.real_panel_service import configure_real_port
+
+    try:
+        result = configure_real_port(device, username, password, port_name, action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("real_panel port config failed")
+        raise HTTPException(status_code=502, detail=f"端口配置失败: {type(e).__name__}: {e}")
+
+    # 审计（REQ-RP-NFUNC-002 / ADR-RP-005）：操作人来自 get_current_user，detail 不含明文密码
+    audit_record_id = None
+    try:
+        from src.security.audit_logger import AuditLogger
+        from src.models.enums import AuditEventType
+        audit_action = "port_shutdown" if action == "shutdown" else "port_no_shutdown"
+        audit_record_id = AuditLogger().log_audit_event(
+            event_type=AuditEventType.CONFIG_CHANGE,
+            alert_id=f"device:{device_id}",
+            operator=current_user.username,
+            action=audit_action,
+            detail={
+                "device_id": device_id,
+                "device_name": device.device_name,
+                "port_name": port_name,
+                "action": action,
+                "success": result.success,
+                "message": result.message,
+            },
+        )
+    except Exception as e:
+        logger.exception("real_panel port config audit failed")
+
+    return {
+        "device_id": device_id,
+        "port_name": port_name,
+        "action": action,
+        "success": result.success,
+        "message": result.message,
+        "audit_record_id": audit_record_id,
+    }
+
+
 @devices_router.post("/{device_id}/ports/{port_name}/config")
 def configure_device_port(
     device_id: int,
     port_name: str,
     body: PortConfigRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     repo = DeviceRepository(db)
     device = repo.get_device_by_id(device_id)
     if device is None:
         raise HTTPException(status_code=404, detail="设备不存在")
+
+    # REAL 分支（MOD-RP-001）：写操作走真实设备 configure + 审计
+    if device.device_type == "REAL":
+        return _configure_real_port(device_id, device, port_name, body.action, current_user)
+
     if device.device_type != "SIMULATOR":
         raise HTTPException(
             status_code=400,

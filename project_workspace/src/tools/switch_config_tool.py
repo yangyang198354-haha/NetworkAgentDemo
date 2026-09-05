@@ -149,6 +149,7 @@ class TpLinkSwitchConfigTool(AbstractSwitchConfigTool):
             _SshSession,
             _TelnetSession,
         )
+        from src.tools.real_session_gate import session_guard_by_access
 
         if not commands:
             return ConfigResult(success=True, output="(no commands provided)",
@@ -161,29 +162,31 @@ class TpLinkSwitchConfigTool(AbstractSwitchConfigTool):
         password = auth.password or ""
         logger.info(f"[TpLinkConfig] {device_ip}:{port} proto={protocol} cmds={len(commands)}")
 
-        try:
-            if protocol == "SSH":
-                sess = _SshSession(device_ip, port, username, password).open()
-            elif protocol == "TELNET":
-                sess = _TelnetSession(device_ip, port, username, password).open()
-            else:
-                raise ValueError(f"Unsupported protocol {protocol}")
-        except Exception as e:
-            logger.exception(f"[TpLinkConfig] connect failed")
-            return ConfigResult(
-                success=False,
-                output=f"Connect failed ({protocol} {device_ip}:{port}): {e.__class__.__name__}: {e}",
-                commands_executed=0,
-                commands_failed=len(commands),
-            )
-
-        try:
-            executed, failed, output = sess.configure(commands)
-        finally:
+        # NFUNC-004: 工作流配置会话与面板/连通性/写操作串行化（仅包裹门，不改会话逻辑）
+        with session_guard_by_access(device_ip, port, protocol):
             try:
-                sess.close()
-            except Exception:
-                pass
+                if protocol == "SSH":
+                    sess = _SshSession(device_ip, port, username, password).open()
+                elif protocol == "TELNET":
+                    sess = _TelnetSession(device_ip, port, username, password).open()
+                else:
+                    raise ValueError(f"Unsupported protocol {protocol}")
+            except Exception as e:
+                logger.exception(f"[TpLinkConfig] connect failed")
+                return ConfigResult(
+                    success=False,
+                    output=f"Connect failed ({protocol} {device_ip}:{port}): {e.__class__.__name__}: {e}",
+                    commands_executed=0,
+                    commands_failed=len(commands),
+                )
+
+            try:
+                executed, failed, output = sess.configure(commands)
+            finally:
+                try:
+                    sess.close()
+                except Exception:
+                    pass
 
         elapsed = int((time.perf_counter() - start) * 1000)
         success = (failed == 0) and (executed > 0 or len(commands) == 0)

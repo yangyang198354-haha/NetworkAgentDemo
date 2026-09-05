@@ -1596,4 +1596,220 @@
 
   </partial_flow>
 
+  <!-- ============================================================ -->
+  <!-- PARTIAL_FLOW: 真实设备（REAL）面板功能                         -->
+  <!-- flow_mode=PARTIAL_FLOW, 从 GROUP_RP_A 开始                    -->
+  <!-- 基于 v0.2.0 已部署版本 + real_device_client 真实设备链路       -->
+  <!-- ============================================================ -->
+  <partial_flow id="REAL_DEVICE_PANEL" name="真实设备面板功能" flow_mode="PARTIAL_FLOW" start_group="GROUP_RP_A">
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RP_A: 真实设备面板需求分析                               -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RP_A" name="真实设备面板需求分析" responsible_agent="sub_agent_requirement_analyst">
+      <phase id="PHASE_RP_01" name="真实设备面板需求规格说明书">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T00:00:00Z</started_at>
+        <completed_at>2026-09-05T02:00:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/requirements/real_panel_requirements_spec.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RP_02" name="真实设备面板用户故事清单">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T00:00:00Z</started_at>
+        <completed_at>2026-09-05T02:00:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/requirements/real_panel_user_stories.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-rp-a-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="INFO">10 REQ-RP-FUNC + 4 REQ-RP-NFUNC 全部有来源引用（用户决策原文或现有代码行号），0 条 [INFERRED] 需求</finding>
+          <finding severity="INFO">9 条用户故事 + 19 组 AC，100% Given/When/Then 格式，需求覆盖率 10/10（100%）</finding>
+          <finding severity="RESOLVED">Q-RP-01~05 全部 RESOLVED，最终决议与用户确认逐字一致</finding>
+          <finding severity="INFO">新增 REQ-RP-FUNC-010（IO 降级展示）锚定 Q-RP-01；Q-RP-04 端点形式 + IO 替代命令均明确交 GROUP_B 架构裁决，零架构越界</finding>
+          <finding severity="MINOR">NFUNC-004 优先级由 Should Have 调整为 Must Have（因 Q-RP-05 会话串行化已确认，一致性调整，合理）</finding>
+        </findings>
+        <completed_at>2026-09-05T02:10:00Z</completed_at>
+      </gate_review>
+    </phase_group>
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RP_B: 真实设备面板架构设计                               -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RP_B" name="真实设备面板架构设计" responsible_agent="sub_agent_system_architect">
+      <phase id="PHASE_RP_03" name="真实设备面板架构决策记录">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:10:00Z</started_at>
+        <completed_at>2026-09-05T02:20:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/architecture/real_panel_architecture_design.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RP_04" name="真实设备面板模块设计与技术选型">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:10:00Z</started_at>
+        <completed_at>2026-09-05T02:20:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/architecture/real_panel_module_design.md" status="APPROVED"/>
+          <file path="real_device_panel/architecture/real_panel_tech_stack.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-rp-b-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="INFO">7 个 ADR（ADR-RP-001~007），每个 ≥2 方案对比，决策全部引用具体 REQ 编号</finding>
+          <finding severity="INFO">7 个模块（MOD-RP-001~007）+ 11 个类型化 IFC 契约；REQ-RP-FUNC-001~010 覆盖 10/10（100%）；4 条 NFUNC 全覆盖</finding>
+          <finding severity="INFO">依赖关系图单向无环（前端→store→HTTP→服务→解析/串行化/会话工厂，解析器与串行化门为叶节点）</finding>
+          <finding severity="INFO">零新增 Python/Node 依赖；不依赖修改 src/ 修测试导入（D-001/D-002 由 tests/conftest.py 补丁）</finding>
+          <finding severity="RESOLVED">Q-RP-04 端点形式→ADR-RP-001（读聚合新端点 GET /real_panel + 写扩展既有端点）；IO 降级→ADR-RP-002（降级展示 + 预留 parse_io_rates 钩子）；Q-RP-05 会话串行化→ADR-RP-003（DeviceToolSession + per-device threading.Lock）；基本信息→ADR-RP-004（纳入容错 Should Have，不升 Must Have）；写操作安全→ADR-RP-005（前端二次确认 + AuditLogger + configure 不 save）</finding>
+          <finding severity="MINOR">2 项 ASSUMPTION 由 PM 接受：ADR-RP-004 基本信息纳入（容错 Should Have，符合用户「待架构裁决」授权）；ADR-RP-003 工作流工具 FRP key 对齐为实现阶段校准项，转 GROUP_C 注意</finding>
+        </findings>
+        <completed_at>2026-09-05T02:25:00Z</completed_at>
+      </gate_review>
+    </phase_group>
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RP_C: 真实设备面板编码实现                               -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RP_C" name="真实设备面板编码实现" responsible_agent="sub_agent_software_developer">
+      <phase id="PHASE_RP_05" name="真实设备面板实现计划与编码">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:25:00Z</started_at>
+        <completed_at>2026-09-05T02:45:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/development/real_panel_implementation_plan.md" status="APPROVED"/>
+          <file path="src/tools/real_panel_parsers.py" status="APPROVED"/>
+          <file path="src/tools/real_panel_service.py" status="APPROVED"/>
+          <file path="src/tools/real_session_gate.py" status="APPROVED"/>
+          <file path="src/api/devices_router.py" status="APPROVED"/>
+          <file path="src/tools/switch_diag_tool.py" status="APPROVED"/>
+          <file path="src/tools/switch_config_tool.py" status="APPROVED"/>
+          <file path="webui/src/stores/devices.ts" status="APPROVED"/>
+          <file path="webui/src/views/devices/DevicesListView.vue" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RP_06" name="真实设备面板代码评审">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:25:00Z</started_at>
+        <completed_at>2026-09-05T02:45:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/development/real_panel_code_review_report.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-rp-c-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="INFO">7 模块 / 8 文件全部实现，11 个 IFC 落地（后端新增 3 + 修改 3 + 前端修改 2）</finding>
+          <finding severity="INFO">code_review CRITICAL 0、MAJOR 3（均 DOCUMENTED）、MINOR 3</finding>
+          <finding severity="INFO">写操作安全专项通过：action ∈ {shutdown,no-shutdown} 校验 + configure 不 save（DeviceToolSession 无 save()）+ AuditLogger(CONFIG_CHANGE, operator=current_user.username, detail 无明文密码) + 前端二次确认</finding>
+          <finding severity="INFO">会话串行化：面板读/写、check_connectivity、工作流工具 REAL 会话全部接入 session_guard/session_guard_by_access；IO 降级 supported=false；info 容错非阻塞；SIMULATOR 分支零变更</finding>
+          <finding severity="INFO">py_compile 6 后端文件通过 + 解析器冒烟自测通过；无真实设备 E2E 与前端 npm build（转 GROUP_D 补做）</finding>
+          <finding severity="MINOR">3 条 MAJOR（FND-001 端口 vlan/speed 真实输出校准、FND-003 工作流 FRP key 对齐、FND-006 parse_system_info 标签校准）移交 test_engineer E2E 阶段验证</finding>
+        </findings>
+        <completed_at>2026-09-05T02:50:00Z</completed_at>
+      </gate_review>
+    </phase_group>
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RP_D: 真实设备面板测试验证                               -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RP_D" name="真实设备面板测试验证" responsible_agent="sub_agent_test_engineer">
+      <phase id="PHASE_RP_07" name="真实设备面板测试计划">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:50:00Z</started_at>
+        <completed_at>2026-09-05T03:05:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/testing/real_panel_test_plan.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RP_08" name="真实设备面板单元测试与集成测试">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:50:00Z</started_at>
+        <completed_at>2026-09-05T03:05:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/testing/real_panel_unit_test_report.md" status="APPROVED"/>
+          <file path="real_device_panel/testing/real_panel_integration_test_report.md" status="APPROVED"/>
+          <file path="tests/test_real_panel_parsers.py" status="APPROVED"/>
+          <file path="tests/test_real_session_gate.py" status="APPROVED"/>
+          <file path="tests/test_real_panel_service.py" status="APPROVED"/>
+          <file path="tests/test_real_panel_api.py" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RP_09" name="真实设备面板端到端测试">
+        <status>NOT_EXECUTED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T02:50:00Z</started_at>
+        <completed_at>2026-09-05T03:05:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/testing/real_panel_e2e_test_report.md" status="NOT_EXECUTED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-rp-d-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="INFO">单元测试 66/66 pass（100.00%，另 1 xfail 不计分母）≥ 80% 门控 PASSED；覆盖率 99%（243 stmts, 3 miss）</finding>
+          <finding severity="INFO">集成测试 15/15 pass（100.00%）≥ 90% 门控 PASSED；metrics 算术一致</finding>
+          <finding severity="INFO">E2E NOT_EXECUTED（本环境无真实 TL-SG5428 设备，未虚构通过率）</finding>
+          <finding severity="INFO">19/19 AC 全覆盖；写操作安全三项验收通过：前端二次确认 + 后端审计（operator=current_user.username，detail 无明文密码）+ configure 不调 save（AC-RP-005-03）</finding>
+          <finding severity="INFO">回归 484 passed / 1 xfailed / 0 failed，SIMULATOR/心跳/连通性零破坏（NFUNC-003）；前端 npm run build 0 错误</finding>
+          <finding severity="MINOR">遗留 KNOWN-LIMITATION/ENV-GAP：FND-001（端口 vlan/speed 真实输出校准）、FND-002（畸形行 unknown）、FND-003（工作流 FRP key 对齐）、FND-006（parse_system_info 标签校准）与真实设备 E2E 采集/写回归，需真实设备校准，转 GROUP_E 列为交付遗留问题</finding>
+        </findings>
+        <completed_at>2026-09-05T03:15:00Z</completed_at>
+      </gate_review>
+    </phase_group>
+
+    <!-- ============================================================ -->
+    <!-- GROUP_RP_E: 真实设备面板部署交付                               -->
+    <!-- ============================================================ -->
+    <phase_group id="GROUP_RP_E" name="真实设备面板部署交付" responsible_agent="sub_agent_devops_engineer">
+      <phase id="PHASE_RP_10" name="真实设备面板 CI/CD 流水线">
+        <status>APPROVED</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T03:15:00Z</started_at>
+        <completed_at>2026-09-05T03:20:00Z</completed_at>
+        <output_files>
+          <file path="real_device_panel/deployment/real_panel_cicd_pipeline.md" status="APPROVED"/>
+        </output_files>
+      </phase>
+      <phase id="PHASE_RP_11" name="真实设备面板部署计划与部署报告">
+        <status>DEPLOYMENT_PENDING</status>
+        <retry_count>0</retry_count>
+        <started_at>2026-09-05T03:15:00Z</started_at>
+        <completed_at></completed_at>
+        <output_files>
+          <file path="real_device_panel/deployment/real_panel_deployment_plan.md" status="APPROVED"/>
+          <file path="real_device_panel/deployment/real_panel_deployment_report.md" status="NOT_CREATED"/>
+        </output_files>
+      </phase>
+      <gate_review>
+        <review_id>gate-rp-e-001</review_id>
+        <decision>PASS</decision>
+        <findings>
+          <finding severity="INFO">每步有回滚：deployment_plan 含 DEPLOY-001~012 与 ROLLBACK-012~001 严格逆序对应；验证步骤标注「无需回滚」，变更步骤（003/004/005/006/008）均有精确逆转操作，兜底 ROLLBACK-002 完整备份恢复</finding>
+          <finding severity="INFO">部署后验证清单 V1~V17 完整，其中 V10~V13 为写操作安全硬性检查（前端二次确认 + AuditLogger CONFIG_CHANGE + 不调 save/copy running-config + detail 无明文密码）</finding>
+          <finding severity="INFO">安全红线明确：禁 pkill -f gunicorn、禁触 80/8000 端口、仅操作 networkagent.service 与 8001、强制 python3.11、真实端口写操作不擅自执行</finding>
+          <finding severity="INFO">CI/CD 流水线 9 阶段锚定 CLAUDE.md CI 命令（STAGE-05 全量回归排除 6 个 e2e 文件 + -k "not slow"），STAGE-08 生产部署被 PRODUCTION_DEPLOY_CONFIRM=true + 真实设备 E2E 双重门控拦截</finding>
+          <finding severity="WARNING">生产部署执行未授权：PRECHK-08（E2E=NOT_EXECUTED）与 PRECHK-09（未收到 PRODUCTION_DEPLOY_CONFIRM=true）未满足，deployment_report=NOT_CREATED/DEPLOYMENT_PENDING；停在 PM_AWAIT_DEPLOY_CONFIRM 等待用户明确授权，授权后由 devops 执行 STAGE-08 并生成 deployment_report 再做执行级门控</finding>
+        </findings>
+        <completed_at>2026-09-05T03:20:00Z</completed_at>
+      </gate_review>
+    </phase_group>
+
+  </partial_flow>
+
 </phase_status>
