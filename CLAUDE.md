@@ -25,6 +25,9 @@ python -m pytest tests/ -v --tb=short \
   --ignore=tests/test_e2e_webui.py \
   --ignore=tests/test_e2e_full.py \
   --ignore=tests/test_inspection_systemd_e2e.py \
+  --ignore=tests/test_e2e_inspection_config_refactor.py \
+  --ignore=tests/test_simulator_e2e.py \
+  --ignore=tests/test_simulator_tools_e2e.py \
   -k "not slow"
 
 # Run a single test file
