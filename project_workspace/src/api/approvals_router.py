@@ -180,6 +180,9 @@ async def decide_approval(
                     try:
                         alert_repo = AlertRepository(db2)
                         final_status = result.get("status", "CLOSED")
+                        # status 可能是 WorkflowStatus 枚举；取 .value 得到纯字符串
+                        # "CLOSED"/"FAILED"（Python 3.11+ str(enum) 会带类名前缀）
+                        final_status = getattr(final_status, "value", final_status)
                         alert_repo.update_alert_status(checkpoint_id, str(final_status))
                     except Exception:
                         pass

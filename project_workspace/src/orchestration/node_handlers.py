@@ -1552,7 +1552,7 @@ class NodeHandlers:
             from src.database.repositories.alert_repository import AlertRepository
             db = SessionLocal()
             try:
-                AlertRepository(db).update_alert_status(alert_id, str(status))
+                AlertRepository(db).update_alert_status(alert_id, status.value)
                 logger.info(f"Alert status synced to DB: {alert_id} → {status}")
             finally:
                 db.close()
