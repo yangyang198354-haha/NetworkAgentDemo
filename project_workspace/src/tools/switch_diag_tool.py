@@ -247,6 +247,7 @@ class TpLinkSwitchDiagTool(AbstractSwitchDiagTool):
         device_ip: str,
         command: str,
         auth: DeviceAuth,
+        alert_id: str = "",
     ) -> DiagResult:
         from src.tools.real_device_client import _SshSession, _TelnetSession
 

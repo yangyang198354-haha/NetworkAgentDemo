@@ -62,7 +62,7 @@ cp project_workspace/.env.example project_workspace/.env
 | Trigger | WebhookReceiver, inspection_cli | Alert ingestion via HTTP webhook + systemd-triggered inspection |
 | Orchestration | StateGraphEngine, AlertNormalizer, NodeHandlers | 14-node LangGraph StateGraph with Interrupt for human approval |
 | LLM & Knowledge | LLMService, TemplateEngine, RAGService, OutputValidator | DeepSeek API for LLM, ChromaDB + OpenAI embeddings for RAG |
-| Tools | SwitchConfigTool, SwitchDiagTool, BackupTool, KnowledgeBaseTool | Mock network device operations (strategy pattern, TP-Link ready) |
+| Tools | SwitchConfigTool, SwitchDiagTool, BackupTool, KnowledgeBaseTool | Device operations via strategy pattern: Mock, TP-Link real device (SSH/Telnet/HTTP via real_device_client), and local simulator backends |
 | Security & Infra | ConfigManager, AuditLogger, RiskAssessor | YAML config, audit trail, risk scoring |
 
 ### LangGraph workflow (14 nodes, 5 conditional edges)
@@ -119,7 +119,7 @@ Vue 3 + TypeScript + Vite + Element Plus + ECharts + Pinia + Vue Router. Auto-im
 
 - **Config**: `config/config.yaml` loaded by `ConfigManager`; env vars take precedence (pattern: `DEVICE_{NAME}_PASSWORD`).
 - **LLM**: DeepSeek API for chat, OpenAI API for Chroma embeddings (falls back to in-memory keyword matching if OpenAI key is absent).
-- **Mock tools**: All device tools (`SwitchConfigTool`, `SwitchDiagTool`, `BackupTool`) run in mock mode (`use_mock=True`). Real TP-Link integration is reserved.
+- **Device tools** (`SwitchConfigTool`, `SwitchDiagTool`, `BackupTool`) follow a strategy pattern with three backends: **Mock** (`use_mock=True`, in-memory, used by CI/demos), the **TP-Link real-device client** (`src/tools/real_device_client.py` — Windows OpenSSH → plink → paramiko fallback chain for TL-SG5428's legacy SSH algorithms), and the **local device simulator** (`src/simulator/` + `simulator_*_tool.py`). Real TP-Link integration (TL-SG5428 SSH/Telnet/HTTP) is implemented, not just reserved.
 - **Testing**: Known source defects (D-001, D-002) are patched at test time via `conftest.py`'s `sys.meta_path` hook — never modify `src/` to fix test imports.
 - **pytest markers**: `slow` (deselect with `-k "not slow"`), `e2e` (requires remote VPS, excluded from CI unit job).
 - **CI**: Unit tests on push/PR to master (Python 3.11 + 3.12); E2E tests only on `workflow_dispatch`.

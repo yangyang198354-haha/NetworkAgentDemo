@@ -82,6 +82,7 @@ class MockSwitchConfigTool(AbstractSwitchConfigTool):
         device_ip: str,
         commands: list[str],
         auth: DeviceAuth,
+        alert_id: str = "",
     ) -> ConfigResult:
         commands_executed = 0
         output_lines: list[str] = []
