@@ -11,7 +11,7 @@ E2E 脚本：真实设备（REAL）端到端工作流垂直切片。
   1. 不硬编码任何交换机明文密码。交换机凭据由服务端 `_resolve_real_credentials`
      （env `DEVICE_<NAME>_PASSWORD` 或 DB Fernet）解析，本脚本不接触、不传递。
   2. 真实写默认关闭。必须显式 `--real-write` 且目标接口 ∈ {Gi1/0/2} 才允许。
-  3. 断言下发命令不含 `description`、`save`、`copy running-config`（不持久化）。
+  3. 断言下发命令不含 `description`（save/持久化已获授权）。
   4. 仅 stdlib（urllib/json/argparse/os/sys/time/ssl），零第三方依赖。
 
 用法：
@@ -42,14 +42,15 @@ import urllib.request
 # 真实写白名单：与 node_handlers.REAL_WRITE_PORT_WHITELIST 保持一致
 REAL_WRITE_PORT_WHITELIST = frozenset({"Gi1/0/2"})
 
-# 允许下发真实写的告警类型（PORT 类才走真实写；CPU/MAC 为降级，不写）
-REAL_WRITE_ALERT_TYPES = frozenset({"PORT_DOWN", "PORT_SHUTDOWN"})
+# 允许下发真实写的告警类型（4 类均已升级为 FIXABLE；CPU/MAC 走缓解命令）
+REAL_WRITE_ALERT_TYPES = frozenset({"PORT_DOWN", "PORT_SHUTDOWN", "CPU_HIGH", "MAC_FLAPPING"})
 
 # 终端状态（工作流结束）
 TERMINAL_STATUSES = frozenset({"CLOSED", "FAILED", "REJECTED", "EXPIRED"})
 
-# 被禁止的下发命令关键字（不区分大小写）
-FORBIDDEN_COMMAND_TOKENS = ("description", "save", "copy running-config", "write memory")
+# 被禁止的下发命令关键字（不区分大小写）。save/持久化已获授权（「允许 save」），
+# 仅 description 仍为红线（不向交换机写描述）。
+FORBIDDEN_COMMAND_TOKENS = ("description",)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_DEVICE_NAME = "TL-SG5428-核心交换机"
@@ -161,13 +162,13 @@ class HttpClient:
 # ── 安全断言 ──────────────────────────────────────────────
 
 def assert_commands_safe(commands: list) -> None:
-    """断言下发命令不含 description / save / copy running-config。"""
+    """断言下发命令不含 description（save/持久化已授权，不再禁止）。"""
     lowered = [str(c).lower() for c in commands]
     for token in FORBIDDEN_COMMAND_TOKENS:
         for cmd in lowered:
             if token in cmd:
                 raise AssertionError(f"禁止的命令关键字 '{token}' 出现在下发命令: {cmd!r}")
-    print(f"  [safe] 下发命令共 {len(commands)} 条，无 description/save/copy running-config")
+    print(f"  [safe] 下发命令共 {len(commands)} 条，无 description")
 
 
 def assert_exec_log_success(exec_log: list, real_write: bool) -> None:
@@ -314,13 +315,10 @@ def dry_run_selfcheck(cfg: E2EConfig) -> int:
         print("  [FAIL] description 命令未被拦截")
         return 1
 
-    try:
-        assert_commands_safe(["copy running-config startup-config"])
-    except AssertionError:
-        print("  [safe] copy running-config 被正确拦截（预期）")
-    else:
-        print("  [FAIL] copy running-config 未被拦截")
-        return 1
+    # save/持久化已授权（「允许 save」）——copy running-config 不再被拦截
+    assert_commands_safe(["interface Gi1/0/2", "mac address-table max-mac-count max-number 10"])
+    assert_commands_safe(["copy running-config startup-config"])
+    print("  [safe] save/持久化命令已获授权，不再被拦截")
 
     # exec_log 成功断言逻辑自检
     assert_exec_log_success(

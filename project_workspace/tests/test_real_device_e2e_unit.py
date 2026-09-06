@@ -251,9 +251,9 @@ class TestResolveFixCapability:
         assert resolve_fix_capability("PORT_DOWN", "REAL") == FixCapability.FIXABLE
         assert resolve_fix_capability("PORT_SHUTDOWN", "REAL") == FixCapability.FIXABLE
 
-    def test_real_cpu_mac_degraded(self):
-        assert resolve_fix_capability("CPU_HIGH", "REAL") == FixCapability.DEGRADED
-        assert resolve_fix_capability("MAC_FLAPPING", "REAL") == FixCapability.DEGRADED
+    def test_real_cpu_mac_fixable(self):
+        assert resolve_fix_capability("CPU_HIGH", "REAL") == FixCapability.FIXABLE
+        assert resolve_fix_capability("MAC_FLAPPING", "REAL") == FixCapability.FIXABLE
 
     def test_non_real_all_fixable(self):
         assert resolve_fix_capability("CPU_HIGH", "MOCK") == FixCapability.FIXABLE
@@ -268,9 +268,9 @@ class TestGetFixTemplate:
         assert get_fix_template("PORT_DOWN", "REAL") == "TPL-PORT-ENABLE"
         assert get_fix_template("PORT_SHUTDOWN", "REAL") == "TPL-PORT-DISABLE"
 
-    def test_real_degraded_returns_none(self):
-        assert get_fix_template("CPU_HIGH", "REAL") is None
-        assert get_fix_template("MAC_FLAPPING", "REAL") is None
+    def test_real_cpu_mac_template(self):
+        assert get_fix_template("CPU_HIGH", "REAL") == "TPL-REAL-CPU-DOS-PREVENT"
+        assert get_fix_template("MAC_FLAPPING", "REAL") == "TPL-REAL-MAC-PORT-SECURITY"
 
 
 # ────────────────────────────────────────────────────────
@@ -310,15 +310,41 @@ class TestVerifyRealFix:
         r = verify_real_fix("PORT_SHUTDOWN", self._text("up"), self._text("down"), self.TARGET)
         assert r.verify_passed is True
 
-    def test_cpu_high_not_fixable(self):
-        r = verify_real_fix("CPU_HIGH", "before", "after", self.TARGET)
-        assert r.verify_passed is False
-        assert "修复降级/不可修复" in r.comparison_notes
+    def test_cpu_high_syn_flood_enabled_passes(self):
+        after = (
+            "DoS Prevention State:         Enabled\n"
+            " Type                          Status\n"
+            " SYN/SYN-ACK Flooding          Enabled\n"
+        )
+        r = verify_real_fix("CPU_HIGH", "before", after, self.TARGET)
+        assert r.verify_passed is True
+        assert "syn-flood" in r.comparison_notes
 
-    def test_mac_flapping_not_fixable(self):
-        r = verify_real_fix("MAC_FLAPPING", "before", "after", self.TARGET)
+    def test_cpu_high_syn_flood_still_disabled_fails(self):
+        after = (
+            "DoS Prevention State:         Disabled\n"
+            " SYN/SYN-ACK Flooding          Disabled\n"
+        )
+        r = verify_real_fix("CPU_HIGH", "before", after, self.TARGET)
         assert r.verify_passed is False
-        assert "修复降级/不可修复" in r.comparison_notes
+
+    def test_mac_flapping_port_security_enabled_passes(self):
+        after = (
+            "Port          Max-learn       Current-learn   Mode        Status\n"
+            "Gi1/0/1       1024            0               dynamic     disable\n"
+            "Gi1/0/2       10              0               dynamic     enable\n"
+        )
+        r = verify_real_fix("MAC_FLAPPING", "before", after, self.TARGET)
+        assert r.verify_passed is True
+        assert "port-security status=enable" in r.comparison_notes
+
+    def test_mac_flapping_port_security_disabled_fails(self):
+        after = (
+            "Gi1/0/1       1024            0               dynamic     disable\n"
+            "Gi1/0/2       1024            0               dynamic     disable\n"
+        )
+        r = verify_real_fix("MAC_FLAPPING", "before", after, self.TARGET)
+        assert r.verify_passed is False
 
     def test_parse_failure_not_passed(self):
         r = verify_real_fix("PORT_DOWN", "garbage", "garbage2", self.TARGET)
@@ -444,18 +470,33 @@ class TestConfigureRecordsSingleSession:
     def test_batches_all_commands_in_one_session(self):
         s, calls = self._session()
         records = s.configure_records(["interface Gi1/0/2", "shutdown"])
-        # 单会话：enable → configure → 两条命令 → exit（各仅一次）
+        # 单会话：enable → configure → 两条命令 → exit×2（interface 落 config-if，
+        # 需额外 exit 爬回 enable 才能 save）
         assert calls == [
             "enable",
             "configure",
             "interface gigabitEthernet 1/0/2",
             "shutdown",
             "exit",
+            "exit",
         ]
         assert len(records) == 2
         assert records[0]["command"] == "interface gigabitEthernet 1/0/2"
         assert records[1]["command"] == "shutdown"
         assert all(r["success"] for r in records)
+
+    def test_no_extra_exit_without_interface_command(self):
+        s, calls = self._session()
+        records = s.configure_records(["ip dos-prevent", "ip dos-prevent type syn-flood"])
+        # 无 interface 命令 → 仅单个 exit 回到 enable（多 exit 会登出）
+        assert calls == [
+            "enable",
+            "configure",
+            "ip dos-prevent",
+            "ip dos-prevent type syn-flood",
+            "exit",
+        ]
+        assert [r["command"] for r in records] == ["ip dos-prevent", "ip dos-prevent type syn-flood"]
 
     def test_marks_error_commands_failed(self):
         s, calls = self._session()

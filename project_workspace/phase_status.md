@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phase_status project_name="NetworkAgentDemo" flow_mode="PARTIAL_FLOW" last_updated="2026-09-05T23:20:00Z">
+<phase_status project_name="NetworkAgentDemo" flow_mode="PARTIAL_FLOW" last_updated="2026-09-06T00:30:00Z">
   <file_header>
     <file_path>project_workspace/NetworkAgentDemo/phase_status.md</file_path>
     <file_type>STATUS_TRACKING</file_type>
@@ -597,6 +597,13 @@
     <log time="2026-09-05T23:05:00Z" state="PM_DEPLOY" action="DEPLOYMENT_COMPLETED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="VPS 部署 f220875 完成（github.com:443 自 VPS 不可达，改用 SFTP 直传 2 文件 + py_compile + systemctl restart + /health healthy v0.2.0）"/>
     <log time="2026-09-05T23:20:00Z" state="PM_RUN_E2E" action="E2E_REAL_WRITE_PASSED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="真实写 E2E TRUE PASS：PORT_SHUTDOWN(499eeaa5)/PORT_DOWN(cb0f7d00) 均 CLOSED，exec_log 各 2 命令 success=true，无持久化命令，无明文凭据泄漏，exit 0"/>
     <log time="2026-09-05T23:20:00Z" state="PM_GATE_REVIEW" action="GATE_REVIEW_COMPLETED" result="PASS" review_id="gate-real-e2e-e-001" trace_id="NetworkAgentDemo-REAL_E2E" note="GROUP_RE_E 门控 PASS；遗留：verify 用 Link 状态无法反映无线上端口 admin 变化，转后续迭代"/>
+    <log time="2026-09-05T23:45:00Z" state="PM_RUN_PROBE" action="READ_ONLY_PROBE_COMPLETED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="二次真机探测（show ip dos-prevent / ? 帮助）发现 TL-SG5428 实际支持 `ip dos-prevent`（全局 DoS 防护）+ `ip dos-prevent type syn-flood`（SYN/SYN-ACK Flooding），且 `mac address-table max-mac-count` 端口安全命令可用 → 推翻 RISK-RE-01 的 DEGRADED 结论"/>
+    <log time="2026-09-06T00:00:00Z" state="PM_ESCALATE_USER" action="CAPABILITY_UPGRADE_DECISION_RECEIVED" result="AUTHORIZED" trace_id="NetworkAgentDemo-REAL_E2E" note="用户裁决「两个都升级」：CPU_HIGH + MAC_FLAPPING 均由 DEGRADED 升级为 FIXABLE；并「允许 save」（copy running-config startup-config 持久化，放宽此前不 save 红线）"/>
+    <log time="2026-09-06T00:10:00Z" state="PM_FIX_DEFECT" action="ROOT_CAUSE_FIXED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="CPU 修复模板改为双命令（ip dos-prevent 全局开启 + ip dos-prevent type syn-flood）；MAC 新增端口安全模板 TPL-REAL-MAC-PORT-SECURITY；REAL_FIX_CAPABILITY 全 FIXABLE；新增 REAL_VERIFY_COMMAND_MAP（show ip dos-prevent / show mac address-table max-mac-count all）"/>
+    <log time="2026-09-06T00:15:00Z" state="PM_FIX_DEFECT" action="ROOT_CAUSE_FIXED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="修复 save 失败根因：interface 级命令进入 config-if 后单次 exit 只回 config 模式，copy running-config 在 enable 模式才可执行 → _enters_interface_mode 检测后补一次 exit；switch_config_tool.run_records 新增 save=True 追加持久化记录"/>
+    <log time="2026-09-06T00:20:00Z" state="PM_DEPLOY" action="DEPLOYMENT_COMPLETED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="VPS 部署 CPU/MAC 升级完成（SFTP 直传 real_device_client.py + 2 模板 + py_compile + systemctl restart + /health healthy v0.2.0）；单元 69/69 全过"/>
+    <log time="2026-09-06T00:30:00Z" state="PM_RUN_E2E" action="E2E_REAL_WRITE_PASSED" result="SUCCESS" trace_id="NetworkAgentDemo-REAL_E2E" note="CPU/MAC 真实写 E2E TRUE PASS：CPU_HIGH（ip dos-prevent 双命令）与 MAC_FLAPPING（端口安全 5 命令含 save）均 verify_passed=true、exec_log 命令全 success=true、CLOSED，exit 0，无明文凭据泄漏"/>
+    <log time="2026-09-06T00:30:00Z" state="PM_GATE_REVIEW" action="GATE_REVIEW_COMPLETED" result="PASS" review_id="gate-real-e2e-e-002" trace_id="NetworkAgentDemo-REAL_E2E" note="RISK-RE-01 升级复核门控 PASS：4 类告警（PORT_DOWN/PORT_SHUTDOWN/CPU_HIGH/MAC_FLAPPING）全部 FIXABLE 且真实写 E2E 全过；遗留 verify（PORT 用 Link 状态）转后续迭代"/>
   </audit_log>
 
   <!-- ============================================================ -->
@@ -1920,7 +1927,7 @@
           <finding severity="INFO">条件3（Q-RE-04，转 E2E）：CPU_HIGH 判定阈值与告警描述（alerts_router.py L212 硬编码 92%/80%）——因 CPU_HIGH 已 DEGRADED（无修复），阈值仅影响 simulate 告警描述文案与诊断显示，不阻塞 GROUP_C 编码，E2E 执行前用户确认即可</finding>
         </findings>
         <completed_at>2026-09-05T04:40:00Z</completed_at>
-        <note>GROUP_RE_B 架构设计完成，门控 PASS。三份架构文档 APPROVED。条件1（CPU/MAC 只读探测）已由用户显式授权并完成探测 → CPU_HIGH/MAC_FLAPPING 定稿 DEGRADED；条件2（DSA 会话链）转 GROUP_C 实现校准；条件3（CPU 阈值）转 E2E 执行前确认。用户已确认进入 GROUP_RE_C 编码</note>
+        <note>GROUP_RE_B 架构设计完成，门控 PASS。三份架构文档 APPROVED。条件1（CPU/MAC 只读探测）已由用户显式授权并完成探测 → CPU_HIGH/MAC_FLAPPING 定稿 DEGRADED；条件2（DSA 会话链）转 GROUP_C 实现校准；条件3（CPU 阈值）转 E2E 执行前确认。用户已确认进入 GROUP_RE_C 编码。【勘误】本门控的 RISK-RE-01 DEGRADED 结论被 2026-09-06 二次真机探测推翻：TL-SG5428 实支持 ip dos-prevent / mac address-table max-mac-count，故 CPU_HIGH/MAC_FLAPPING 已升级 FIXABLE（见 GROUP_RE_E 复核门控 gate-real-e2e-e-002）</note>
       </gate_review>
     </phase_group>
 
@@ -2054,9 +2061,14 @@
           <finding severity="INFO">生产部署：VPS 47.109.197.217 已运行 f220875（925f7a7 + f3adc92 已前置部署；f220875 因 VPS 无法连 github.com:443 改用 SFTP 直传 2 文件），py_compile 通过、systemctl restart networkagent active、/health healthy v0.2.0</finding>
           <finding severity="INFO">真实写 E2E 结果（硬化后断言）：PORT_SHUTDOWN（alert 499eeaa5）与 PORT_DOWN（alert cb0f7d00）均 CLOSED，exec_log 各 2 条命令全部 success=true，无 description/save/copy running-config，无明文交换机凭据泄漏，exit 0</finding>
           <finding severity="INFO">已知遗留（非阻塞、已记录）：verify_passed 恒为 false——Gi1/0/2 无网线，show interface status 的 Link 状态无法反映 admin-state 变化（before=down after=down），需后续用 show running-config 判 admin 状态；TERMINAL_STATUSES 枚举串问题已被 b3944c5（status 存明文串）覆盖</finding>
+          <finding severity="RESOLVED">二次真机探测推翻 RISK-RE-01 DEGRADED 结论（2026-09-06）：TL-SG5428 实际支持 `ip dos-prevent` + `ip dos-prevent type syn-flood`（CPU 缓解）与 `mac address-table max-mac-count` 端口安全（MAC 缓解）。用户裁决「两个都升级」+「允许 save」，CPU_HIGH/MAC_FLAPPING 由 DEGRADED 升级为 FIXABLE</finding>
+          <finding severity="RESOLVED">CPU_HIGH 修复 = 双命令模板 TPL-REAL-CPU-DOS-PREVENT（ip dos-prevent 全局开启 + ip dos-prevent type syn-flood），verify 用 show ip dos-prevent 判定 SYN/SYN-ACK Flooding=Enabled</finding>
+          <finding severity="RESOLVED">MAC_FLAPPING 修复 = 端口安全模板 TPL-REAL-MAC-PORT-SECURITY（interface + max-mac-count max-number 10 + mode dynamic + status enable），verify 用 show mac address-table max-mac-count all 判定 Status=enable</finding>
+          <finding severity="RESOLVED">save 持久化根因修复：interface 级命令进入 config-if 后单次 exit 只回 config 模式，copy running-config 需 enable 模式 → real_device_client 三会话类新增 _enters_interface_mode 检测补 exit；switch_config_tool.run_records 新增 save=True 追加 save 记录（用户已授权「允许 save」）</finding>
+          <finding severity="INFO">CPU/MAC 真实写 E2E TRUE PASS：CPU_HIGH（exec_log 3 命令）与 MAC_FLAPPING（exec_log 5 命令含 save）均 verify_passed=true、命令全 success=true、CLOSED，exit 0，无明文凭据泄漏；单元 69/69 全过</finding>
         </findings>
-        <completed_at>2026-09-05T23:20:00Z</completed_at>
-        <note>GROUP_RE_E 部署交付，门控 PASS。真实写 E2E 由 SSH 阻塞转为 TRUE PASS：切 TELNET + 修接口名翻译 + 修命令分会话 + 假通过加固，两场景（PORT_SHUTDOWN/PORT_DOWN）在真实 TL-SG5428 上命令全部 success=true 且 CLOSED。遗留：verify 用 Link 状态无法反映无线上端口的 admin 变化，转后续迭代</note>
+        <completed_at>2026-09-06T00:30:00Z</completed_at>
+        <note>GROUP_RE_E 部署交付，门控 PASS（含 RISK-RE-01 升级复核 gate-real-e2e-e-002）。真实写 E2E 由 SSH 阻塞转为 TRUE PASS：切 TELNET + 修接口名翻译 + 修命令分会话 + 假通过加固，PORT_SHUTDOWN/PORT_DOWN 先通；二次探测发现 DoS 防护/端口安全命令后，CPU_HIGH/MAC_FLAPPING 由 DEGRADED 升级 FIXABLE（用户「两个都升级」+「允许 save」），4 类告警全部在真实 TL-SG5428 上 verify_passed=true 且 CLOSED。遗留：PORT 类 verify 用 Link 状态无法反映无线上端口的 admin 变化，转后续迭代（用 show running-config 判 admin）</note>
       </gate_review>
     </phase_group>
 

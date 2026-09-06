@@ -94,21 +94,40 @@ REAL_DIAG_COMMAND_MAP: dict[str, list[str]] = {
     AlertType.MAC_FLAPPING: ["show interface status", "show mac address-table"],
 }
 
-# ADR-RE-004: CPU_HIGH/MAC_FLAPPING 在 TL-SG5428 无已核实等价修复命令 → DEGRADED
+# ADR-RE-004: TL-SG5428 已核实等价修复命令（2026-09-06 真机探测确认）
+#   - CPU_HIGH → `ip dos-prevent type syn-flood`（全局 config，DoS 防护）
+#   - MAC_FLAPPING → `mac address-table max-mac-count ...`（接口 config，端口安全）
 REAL_FIX_CAPABILITY: dict[str, FixCapability] = {
     AlertType.PORT_DOWN: FixCapability.FIXABLE,
     AlertType.PORT_SHUTDOWN: FixCapability.FIXABLE,
-    AlertType.CPU_HIGH: FixCapability.DEGRADED,
-    AlertType.MAC_FLAPPING: FixCapability.DEGRADED,
+    AlertType.CPU_HIGH: FixCapability.FIXABLE,
+    AlertType.MAC_FLAPPING: FixCapability.FIXABLE,
 }
 
 REAL_FIX_TEMPLATE_MAP: dict[str, str] = {
     AlertType.PORT_DOWN: "TPL-PORT-ENABLE",
     AlertType.PORT_SHUTDOWN: "TPL-PORT-DISABLE",
+    AlertType.CPU_HIGH: "TPL-REAL-CPU-DOS-PREVENT",
+    AlertType.MAC_FLAPPING: "TPL-REAL-MAC-PORT-SECURITY",
 }
 
-# ADR-RE-006: REAL 写操作仅限授权测试端口（shutdown 需更高授权）
+# 修复后验证命令（ADR-RE-005 扩展）：CPU/MAC 用轻量 show 检查修复标记，
+# 而非对比 before/after 诊断（原始诊断 show cpu-utilization / show interface status
+# 不随修复变化）。MAC 的 `show mac address-table max-mac-count all` 首屏即含 Gi1/0/2。
+REAL_VERIFY_COMMAND_MAP: dict[str, str] = {
+    AlertType.PORT_DOWN: "show interface status",
+    AlertType.PORT_SHUTDOWN: "show interface status",
+    AlertType.CPU_HIGH: "show ip dos-prevent",
+    AlertType.MAC_FLAPPING: "show mac address-table max-mac-count all",
+}
+
+# ADR-RE-006: REAL 写操作仅限授权测试端口（shutdown 需更高授权）。
+# 端口级命令（PORT/MAC）才走端口白名单；CPU_HIGH 的 ip dos-prevent 是全局 config，
+# 不引用端口，故不在端口白名单范围内（命令来自固定模板，非 LLM 生成）。
 REAL_WRITE_PORT_WHITELIST: frozenset[str] = frozenset({"Gi1/0/2"})
+REAL_PORT_SCOPED_ALERT_TYPES: frozenset[str] = frozenset({
+    AlertType.PORT_DOWN, AlertType.PORT_SHUTDOWN, AlertType.MAC_FLAPPING,
+})
 
 REAL_CREDENTIAL_MISSING_MSG = (
     "REAL 凭据未配置：仅接受 DEVICE_<NAME>_PASSWORD 环境变量或 DB Fernet 解密，"
@@ -309,13 +328,46 @@ def verify_real_fix(
     after_text: str,
     target_port: str,
 ) -> VerifyResult:
-    """IFC-RE-005-01: REAL 结构化验证（parse_interface_status Status 列）。"""
-    if alert_type in (AlertType.CPU_HIGH, AlertType.MAC_FLAPPING):
+    """IFC-RE-005-01: REAL 结构化验证。PORT 用 parse_interface_status Status 列；
+    CPU/MAC 检查修复标记（show ip dos-prevent / show mac address-table max-mac-count all）。"""
+    after = after_text or ""
+
+    if alert_type == AlertType.CPU_HIGH:
+        # 修复命令固定为 `ip dos-prevent type syn-flood`；对应 show 表行
+        # "SYN/SYN-ACK Flooding" 状态由 Disabled → Enabled。
+        for line in after.splitlines():
+            if "SYN/SYN-ACK Flooding" in line and line.rstrip().endswith("Enabled"):
+                return VerifyResult(
+                    verify_passed=True,
+                    before_state=(before_text or "")[:500],
+                    after_state=after[:500],
+                    comparison_notes="CPU_HIGH: syn-flood DoS 防护已启用",
+                )
         return VerifyResult(
             verify_passed=False,
             before_state=(before_text or "")[:500],
-            after_state=(after_text or "")[:500],
-            comparison_notes="修复降级/不可修复：该告警类型在 TL-SG5428 无已核实 CLI 修复能力",
+            after_state=after[:500],
+            comparison_notes="CPU_HIGH: 未检测到 syn-flood 防护启用",
+        )
+
+    if alert_type == AlertType.MAC_FLAPPING:
+        # show mac address-table max-mac-count all 表行：
+        # "Gi1/0/2  1024  0  dynamic  disable" → 修复后 Status 列变 enable。
+        for line in after.splitlines():
+            parts = line.split()
+            if parts and parts[0] == (target_port or ""):
+                status = parts[-1].lower()
+                return VerifyResult(
+                    verify_passed=status == "enable",
+                    before_state=(before_text or "")[:500],
+                    after_state=after[:500],
+                    comparison_notes=f"MAC_FLAPPING: {target_port} port-security status={status}",
+                )
+        return VerifyResult(
+            verify_passed=False,
+            before_state=(before_text or "")[:500],
+            after_state=after[:500],
+            comparison_notes=f"MAC_FLAPPING: 未在端口安全表定位到 {target_port}",
         )
 
     try:
@@ -1093,9 +1145,16 @@ class NodeHandlers:
             # 安全底线: 校验失败则使用默认参数
             validated_params = self._get_default_params(template_def)
 
-        # ADR-RE-006: REAL 端口写操作固定到告警真实端口（不落默认 Gi0/1）
-        if device_type == "REAL" and "iface_name" in (template_def.params_schema or {}):
-            validated_params["iface_name"] = device_info_dict.get("interface_name") or "Gi1/0/2"
+        # ADR-RE-006: REAL 写操作参数固定（不落 LLM 任意值）——
+        #   端口写固定到告警真实端口；端口安全上限固定 10；DoS 防护类型固定 syn-flood。
+        if device_type == "REAL":
+            schema = template_def.params_schema or {}
+            if "iface_name" in schema:
+                validated_params["iface_name"] = device_info_dict.get("interface_name") or "Gi1/0/2"
+            if "max_mac" in schema:
+                validated_params["max_mac"] = 10
+            if "dos_type" in schema:
+                validated_params["dos_type"] = "syn-flood"
 
         # Step 3: TemplateEngine 确定性拼装（非 LLM）
         try:
@@ -1307,6 +1366,7 @@ class NodeHandlers:
         node = "execute_fix"
         self._log_node(state, node, "START")
         alert_id = state.get("alert_id", "")
+        alert_type = state.get("alert_type", AlertType.PORT_DOWN)
 
         fix_plan_dict = state.get("fix_plan", {})
         commands = fix_plan_dict.get("commands", [])
@@ -1324,8 +1384,8 @@ class NodeHandlers:
         exec_log: list[dict[str, Any]] = []
         device_type = self._get_device_type(state)
 
-        # ADR-RE-006: REAL 写操作端口白名单校验（不 save、不下发 description）
-        if device_type == "REAL" and commands:
+        # ADR-RE-006: REAL 写操作端口白名单校验（仅端口级命令；save 已授权）
+        if device_type == "REAL" and commands and alert_type in REAL_PORT_SCOPED_ALERT_TYPES:
             target_port = device_info.get("interface_name") or "Gi1/0/2"
             if target_port not in REAL_WRITE_PORT_WHITELIST:
                 exec_log = [{
@@ -1360,7 +1420,7 @@ class NodeHandlers:
             # 连续执行，逐条各开一个会话会把 shutdown 落到全局 config 模式。
             from src.tools.switch_config_tool import create_switch_config_tool
             config_tool = create_switch_config_tool(device_type="REAL")
-            for rec in config_tool.run_records(device_ip, commands, auth):
+            for rec in config_tool.run_records(device_ip, commands, auth, save=True):
                 record = {
                     "command": rec.get("command", ""),
                     "success": rec.get("success", False),
@@ -1430,9 +1490,14 @@ class NodeHandlers:
         device_ip = device_info.get("device_ip", "0.0.0.0")
         before_diag = state.get("diag_result", "")
 
-        # 重新执行诊断（ADR-RE-003: device_type 感知）
+        # 重新执行诊断（ADR-RE-003: device_type 感知）；REAL 用修复验证命令
         device_type = self._get_device_type(state)
-        commands = get_diag_commands(alert_type, device_type)
+        if device_type == "REAL":
+            verify_commands = [REAL_VERIFY_COMMAND_MAP.get(
+                alert_type, get_diag_commands(alert_type, device_type)[0]
+            )]
+        else:
+            verify_commands = get_diag_commands(alert_type, device_type)[:1]
         after_outputs: list[str] = []
         auth = self._extract_auth(device_info)
 
@@ -1448,7 +1513,7 @@ class NodeHandlers:
             from src.tools.real_device_client import _strip_echo_and_prompts
             strip_real = _strip_echo_and_prompts
 
-        for command in commands[:1]:  # 验证仅跑第一条命令（快速检查）
+        for command in verify_commands:  # 验证仅跑第一条命令（快速检查）
             actual_command = command
             if device_type != "REAL" and alert_type == AlertType.PORT_DOWN:
                 iface = device_info.get("interface_name", "Gi0/1")

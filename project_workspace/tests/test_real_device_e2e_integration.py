@@ -92,6 +92,11 @@ def _make_handlers():
     return NodeHandlers()
 
 
+def _no_llm(**kw):
+    """LLM 桩：抛异常使 handle_generate_fix_plan 回退默认参数，保持测试无网络。"""
+    raise RuntimeError("no LLM in test")
+
+
 # ────────────────────────────────────────────────────────
 # AC-RE-002-01 / AC-RE-006-01: handle_get_device_info REAL
 # ────────────────────────────────────────────────────────
@@ -176,20 +181,28 @@ class TestHandleEstablishSshReal:
 # ────────────────────────────────────────────────────────
 
 class TestHandleGenerateFixPlanReal:
-    def test_cpu_high_degraded_empty_commands(self):
+    def test_cpu_high_renders_dos_prevent(self, monkeypatch):
         handlers = _make_handlers()
+        monkeypatch.setattr(handlers.llm_service, "fill_template_params", _no_llm)
         state = _real_state(alert_type="CPU_HIGH", root_cause="cpu busy", diag_result="CPU 92%")
         out = handlers.handle_generate_fix_plan(state)
         fp = out["fix_plan"]
-        assert fp["commands"] == []
-        assert fp["template_id"] == ""
-        assert "修复降级" in fp["description"]
+        assert fp["template_id"] == "TPL-REAL-CPU-DOS-PREVENT"
+        assert fp["commands"] == ["ip dos-prevent", "ip dos-prevent type syn-flood"]
 
-    def test_mac_flapping_degraded_empty_commands(self):
+    def test_mac_flapping_renders_port_security(self, monkeypatch):
         handlers = _make_handlers()
+        monkeypatch.setattr(handlers.llm_service, "fill_template_params", _no_llm)
         state = _real_state(alert_type="MAC_FLAPPING", root_cause="flapping", diag_result="mac flapping")
         out = handlers.handle_generate_fix_plan(state)
-        assert out["fix_plan"]["commands"] == []
+        fp = out["fix_plan"]
+        assert fp["template_id"] == "TPL-REAL-MAC-PORT-SECURITY"
+        assert fp["commands"] == [
+            "interface Gi1/0/2",
+            "mac address-table max-mac-count max-number 10",
+            "mac address-table max-mac-count mode dynamic",
+            "mac address-table max-mac-count status enable",
+        ]
 
     def test_port_template_renders_two_commands_no_description(self):
         """TC-INT-008 / AC-RE-003-01: PORT 模板去 description 后渲染 2 条命令。"""
@@ -232,7 +245,7 @@ class TestHandleExecuteFixRealWhitelist:
         cmds = ["interface Gi1/0/2", "no shutdown"]
 
         class _FakeTool:
-            def run_records(self, device_ip, commands, auth):
+            def run_records(self, device_ip, commands, auth, save=False):
                 sent.append(list(commands))
                 return [{"command": c, "success": True, "output": "ok",
                          "error": None} for c in commands]
@@ -252,6 +265,33 @@ class TestHandleExecuteFixRealWhitelist:
         # 关键回归断言：interface + no shutdown 必须在**同一会话**一次性下发
         assert sent == [cmds], "REAL 写命令必须单会话批量下发（不能逐条分会话）"
         assert len(out["exec_log"]) == 2
+        assert all(r["success"] for r in out["exec_log"])
+
+    def test_cpu_high_global_bypasses_port_whitelist_and_saves(self, monkeypatch):
+        """CPU_HIGH 的 ip dos-prevent 是全局 config，不走端口白名单，且 save=True。"""
+        handlers = _make_handlers()
+        sent = []
+        cmds = ["ip dos-prevent", "ip dos-prevent type syn-flood"]
+
+        class _FakeTool:
+            def run_records(self, device_ip, commands, auth, save=False):
+                sent.append((list(commands), save))
+                return [{"command": c, "success": True, "output": "ok",
+                         "error": None} for c in commands]
+
+        monkeypatch.setattr(
+            "src.tools.switch_config_tool.create_switch_config_tool",
+            lambda **k: _FakeTool(),
+        )
+        state = _real_state(
+            alert_type="CPU_HIGH",
+            fix_plan={"commands": cmds, "template_id": "TPL-REAL-CPU-DOS-PREVENT",
+                      "params": {"dos_type": "syn-flood"}},
+            device_info={"device_name": "TL-SG5428-核心交换机", "device_type": "REAL"},
+        )
+        out = handlers.handle_execute_fix(state)
+        assert "status" not in out or out.get("status") != "FAILED"
+        assert sent == [(cmds, True)], "CPU 全局写不应被端口白名单拦截，且应 save=True"
         assert all(r["success"] for r in out["exec_log"])
 
 

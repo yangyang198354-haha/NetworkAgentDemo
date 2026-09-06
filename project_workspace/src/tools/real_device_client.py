@@ -1297,6 +1297,8 @@ class _SshSession:
                 "error": None,
             })
         self.send("exit", wait=0.6)
+        if _enters_interface_mode(commands):
+            self.send("exit", wait=0.6)
         return records
 
     def save(self) -> tuple[bool, str]:
@@ -1624,6 +1626,8 @@ class _NativeOpensshSession:
                 "error": None,
             })
         self.send("exit", wait=0.6, max_wait=3)
+        if _enters_interface_mode(commands):
+            self.send("exit", wait=0.6, max_wait=3)
         return records
 
     def save(self) -> tuple[bool, str]:
@@ -2063,6 +2067,8 @@ class _TelnetSession:
                 "error": None,
             })
         self._run_cmd("exit", wait=0.6)
+        if _enters_interface_mode(commands):
+            self._run_cmd("exit", wait=0.6)
         return records
 
     def save(self) -> tuple[bool, str]:
@@ -2114,6 +2120,21 @@ def _normalize_tp_link_commands(commands: list[str]) -> list[str]:
             c = "interface " + _tp_link_full_port_name(c[len("interface "):])
         out.append(c)
     return out
+
+
+def _enters_interface_mode(commands: list[str]) -> bool:
+    """True if any command enters interface config mode (e.g. ``interface Gi1/0/2``).
+
+    On TP-Link, entering ``interface`` drops into (config-if) mode, so the single
+    ``exit`` at the end of ``configure_records`` only climbs back to (config)
+    mode — not (enable) mode. The subsequent ``save()`` (``copy running-config
+    startup-config``) is an enable-mode command and would fail. Detect this case
+    so ``configure_records`` can send an extra ``exit`` to return to enable mode.
+    """
+    return any(
+        (c or "").lstrip().lower().startswith("interface ")
+        for c in commands
+    )
 
 
 def _looks_like_error(output: str) -> bool:

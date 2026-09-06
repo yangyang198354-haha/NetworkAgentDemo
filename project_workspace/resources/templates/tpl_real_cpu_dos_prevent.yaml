@@ -1,0 +1,12 @@
+template_id: TPL-REAL-CPU-DOS-PREVENT
+description: "TP-Link TL-SG5428 DoS 防护：全局开启 DoS 防护并启用 SYN Flood 攻击防御（ip dos-prevent + ip dos-prevent type syn-flood），缓解 CPU 冲高"
+alert_type: CPU_HIGH
+risk_level: MEDIUM
+params_schema:
+  dos_type: string
+risk_hints:
+  - "DoS 防护为全局配置，开启后对所有端口生效"
+  - "仅支持已核实的攻击类型：syn-flood/ping-flood/land/null-scan/blat/port-less-1024/scan-synfin/win-nuke/xma-scan"
+template: |
+  ip dos-prevent
+  ip dos-prevent type {{ dos_type }}

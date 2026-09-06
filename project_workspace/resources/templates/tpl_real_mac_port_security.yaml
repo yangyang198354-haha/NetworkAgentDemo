@@ -1,0 +1,16 @@
+template_id: TPL-REAL-MAC-PORT-SECURITY
+description: "TP-Link TL-SG5428 端口安全：限制接口 MAC 学习数量（mac address-table max-mac-count），防止 MAC 漂移"
+alert_type: MAC_FLAPPING
+risk_level: MEDIUM
+params_schema:
+  iface_name: string
+  max_mac: integer
+risk_hints:
+  - "端口安全可能阻止合法的新设备接入该端口"
+  - "max-number 设 0 表示不学习新 MAC（可能断连），建议 ≥ 当前在线 MAC 数"
+  - "接口级配置：interface + max-mac-count 必须在同一 config 会话连续下发"
+template: |
+  interface {{ iface_name }}
+   mac address-table max-mac-count max-number {{ max_mac }}
+   mac address-table max-mac-count mode dynamic
+   mac address-table max-mac-count status enable

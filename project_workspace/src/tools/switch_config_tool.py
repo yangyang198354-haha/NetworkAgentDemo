@@ -199,11 +199,15 @@ class TpLinkSwitchConfigTool(AbstractSwitchConfigTool):
         )
 
     def run_records(self, device_ip: str, commands: list[str],
-                    auth: DeviceAuth) -> list[dict]:
+                    auth: DeviceAuth, save: bool = False) -> list[dict]:
         """单会话批量下发并返回逐命令结果（interface + shutdown 需同会话）。
 
         返回形如 [{"command","success","output","error"}] 的列表，供 execute_fix
         构造逐命令 exec_log。区别于 `_run`（返回 ConfigResult 汇总）。
+
+        save=True 时，在 configure_records 退出 config 模式后，于 enable 模式追加
+        一次 `copy running-config startup-config` 持久化（用户已授权「允许 save」），
+        并在结果列表末尾追加 {"command":"save", ...} 记录。
         """
         from src.tools.real_device_client import _SshSession, _TelnetSession
         from src.tools.real_session_gate import session_guard_by_access
@@ -234,7 +238,16 @@ class TpLinkSwitchConfigTool(AbstractSwitchConfigTool):
                 } for c in commands]
 
             try:
-                return sess.configure_records(commands)
+                records = sess.configure_records(commands)
+                if save:
+                    ok, out = sess.save()
+                    records.append({
+                        "command": "save",
+                        "success": ok,
+                        "output": out,
+                        "error": None,
+                    })
+                return records
             finally:
                 try:
                     sess.close()
