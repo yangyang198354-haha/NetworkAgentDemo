@@ -160,6 +160,10 @@ class InspectionCLI:
             try:
                 result = self._inspect_device(device, timeout_seconds)
                 device_results[device_name] = result
+                if result.get("error") and result.get("anomalies", 0) == 0:
+                    # 设备不可达/巡检失败（0 异常但有 error）→ 记为系统级失败，
+                    # 使「全部设备均失败」时能正确判定 FAILURE（否则误报 SUCCESS）。
+                    has_system_error = True
                 if result.get("anomalies", 0) > 0:
                     anomaly_count += result["anomalies"]
                     logger.warning(
@@ -316,9 +320,16 @@ class InspectionCLI:
 
         try:
             from sqlalchemy import select
+            from sqlalchemy.orm import joinedload
             from src.database.device_models import Device as DbDevice
 
-            devices = self._db_session.execute(select(DbDevice)).scalars().all()
+            devices = (
+                self._db_session.execute(
+                    select(DbDevice).options(joinedload(DbDevice.credential))
+                )
+                .scalars()
+                .all()
+            )
             return [
                 {
                     "device_name": d.device_name,
@@ -326,6 +337,15 @@ class InspectionCLI:
                     "device_model": d.device_model or "",
                     "device_type": d.device_type or "MOCK",       # G4
                     "simulator_port": d.simulator_port,          # G4
+                    # REAL/SIMULATOR 接入解析所需字段（host/FRP/凭据）
+                    "connection_protocol": getattr(d, "connection_protocol", None),
+                    "frp_proxy_host": getattr(d, "frp_proxy_host", None),
+                    "frp_proxy_port": getattr(d, "frp_proxy_port", None),
+                    "ssh_username": d.credential.ssh_username if d.credential else None,
+                    "ssh_password_encrypted": (
+                        d.credential.ssh_password_encrypted if d.credential else None
+                    ),
+                    "ssh_port": d.credential.ssh_port if d.credential else None,
                 }
                 for d in devices
             ]
@@ -368,23 +388,113 @@ class InspectionCLI:
 
     # ── Internal: device inspection logic ────────────────────
 
+    def _decrypt_password(self, token: Optional[str]) -> str:
+        """Fernet 解密设备凭据密码（优先级：ENV 密钥 > data/.encryption_key 文件）。
+
+        不使用 ConfigManager.get_device_credentials() —— 该路径的 decrypt_credential
+        是悬空 import，会静默回退成 "admin123"，导致真实设备/模拟器认证失败。
+        """
+        if not token:
+            return ""
+        try:
+            from src.services.encryption_service import EncryptionService
+
+            svc = EncryptionService()
+            if getattr(svc, "_fernet", None) is None:
+                svc.initialize()
+            return svc.decrypt(token)
+        except Exception as e:
+            logger.warning(f"Password decrypt failed: {e}")
+            return ""
+
+    def _resolve_device_auth(self, device: dict) -> tuple[str, int, str, str, str]:
+        """按 device_type 解析 (host, port, protocol, username, password)。
+
+        - SIMULATOR → 127.0.0.1:simulator_port (SSH)
+        - REAL      → frp_proxy_host:frp_proxy_port + connection_protocol（FRP 反代），
+                      否则回退 device_ip:ssh_port
+        - MOCK      → device_ip:ssh_port（无网络，仅占位）
+        """
+        device_name = device.get("device_name", "unknown")
+        dev_type = (device.get("device_type") or "MOCK").upper()
+
+        username = device.get("ssh_username") or "admin"
+        env_pwd = os.environ.get(f"DEVICE_{device_name.upper()}_PASSWORD", "").strip()
+        password = env_pwd or self._decrypt_password(
+            device.get("ssh_password_encrypted")
+        )
+
+        if dev_type == "SIMULATOR":
+            host = "127.0.0.1"
+            port = int(device.get("simulator_port") or 2222)
+            protocol = "SSH"
+        elif dev_type == "REAL":
+            if device.get("frp_proxy_host") and device.get("frp_proxy_port"):
+                host = device["frp_proxy_host"]
+                port = int(device["frp_proxy_port"])
+            else:
+                host = device.get("device_ip", "unknown")
+                port = int(device.get("ssh_port") or 22)
+            protocol = (device.get("connection_protocol") or "SSH").upper()
+        else:  # MOCK
+            host = device.get("device_ip", "unknown")
+            port = int(device.get("ssh_port") or 22)
+            protocol = "SSH"
+
+        return host, port, protocol, username, password
+
+    @staticmethod
+    def _parse_cpu_percent(output: str, dev_type: str) -> Optional[float]:
+        """从诊断命令输出提取 CPU 占用百分比（REAL 设备命令/格式不同）。"""
+        if (dev_type or "").upper() == "REAL":
+            from src.tools.real_panel_parsers import parse_cpu_utilization
+
+            try:
+                return parse_cpu_utilization(output).cpu_5s
+            except Exception:
+                return None
+        m = re.search(r"CPU utilization.*?(\d+)%", output)
+        return float(m.group(1)) if m else None
+
     def _inspect_device(self, device: dict, timeout_seconds: int = 30) -> dict:
         """
         对单台设备执行诊断命令并检测异常。
         迁移自 inspection_scheduler.py 的 _inspect_device() 方法。
 
+        v0.2.x 修复：按 device_type 解析真实接入地址（SIMULATOR→127.0.0.1、
+        REAL→FRP 反代 + connection_protocol），凭据经 Fernet 正确解密，
+        连接/命令失败记入 error 字段（不再静默返回 0 异常）。
+
         Returns:
-            dict with keys: device_name, device_ip, anomalies (count), events (list)
+            dict with keys: device_name, device_ip, anomalies (count), events (list), [error]
         """
         device_name = device.get("device_name", "unknown")
         device_ip = device.get("device_ip", "unknown")
+        dev_type = (device.get("device_type") or "MOCK").upper()
         events: list[dict] = []
         anomalies = 0
+        errors: list[str] = []
 
-        # Get diag tool based on device_type (REQ-FUNC-120)
+        # 解析接入地址 + 凭据
+        try:
+            host, port, protocol, username, password = self._resolve_device_auth(device)
+        except Exception as e:
+            logger.warning(f"Connection resolve failed for {device_name}: {e}")
+            return {
+                "device_name": device_name,
+                "device_ip": device_ip,
+                "anomalies": 0,
+                "events": [],
+                "error": f"connection resolve failed: {e}",
+            }
+
+        from src.models.alert import DeviceAuth
+        auth = DeviceAuth(
+            username=username, password=password, port=port, protocol=protocol
+        )
+
         try:
             from src.tools.switch_diag_tool import create_switch_diag_tool
-            dev_type = device.get("device_type", "MOCK")
             diag_tool = create_switch_diag_tool(use_mock=True, device_type=dev_type)
         except Exception as e:
             logger.warning(f"Cannot create diag tool: {e}")
@@ -396,21 +506,9 @@ class InspectionCLI:
                 "error": str(e),
             }
 
-        # Get device auth credentials
-        from src.security.config_manager import ConfigManager
-        cm = ConfigManager()
-        from src.models.alert import DeviceInfo
-        dev_info = DeviceInfo(
-            device_name=device_name,
-            device_ip=device_ip,
-            device_model=device.get("device_model", ""),
-            device_type=device.get("device_type", "MOCK"),
-        )
-        auth = cm.get_device_credentials(device_name)
-
         # 1. Check interface status
         try:
-            status_result = diag_tool._run(device_ip, "show interface status", auth)
+            status_result = diag_tool._run(host, "show interface status", auth)
             if status_result and status_result.success:
                 for line in status_result.output.split("\n"):
                     if "down" in line.lower() or "notconnect" in line.lower():
@@ -429,43 +527,55 @@ class InspectionCLI:
                             logger.info(
                                 f"  [ANOMALY] {device_name}: PORT_DOWN — {iface_name}"
                             )
+            else:
+                msg = (getattr(status_result, "output", "") or "no output")[:200]
+                errors.append(f"show interface status failed: {msg}")
         except Exception as e:
             logger.warning(f"Interface status check failed for {device_name}: {e}")
+            errors.append(f"show interface status error: {e}")
 
-        # 2. Check CPU utilization
+        # 2. Check CPU utilization (REAL 使用 TL-SG5428 `show cpu-utilization`)
+        cpu_cmd = "show cpu-utilization" if dev_type == "REAL" else "show processes cpu"
         try:
-            cpu_result = diag_tool._run(device_ip, "show processes cpu", auth)
+            cpu_result = diag_tool._run(host, cpu_cmd, auth)
             if cpu_result and cpu_result.success:
-                cpu_match = re.search(r"CPU utilization.*?(\d+)%", cpu_result.output)
-                if cpu_match:
-                    cpu_percent = int(cpu_match.group(1))
-                    if cpu_percent > CPU_THRESHOLD:
-                        event = {
-                            "device_name": device_name,
-                            "cpu_percent": cpu_percent,
-                            "alert_type": "CPU_HIGH",
-                            "severity": "MAJOR",
-                            "content": (
-                                f"CPU utilization at {cpu_percent}% on {device_name} "
-                                f"(threshold: {CPU_THRESHOLD}%)"
-                            ),
-                        }
-                        events.append(event)
-                        anomalies += 1
-                        logger.info(
-                            f"  [ANOMALY] {device_name}: CPU_HIGH — {cpu_percent}%"
-                        )
-                    else:
-                        logger.info(f"  [OK] {device_name}: CPU at {cpu_percent}%")
+                cpu_percent = self._parse_cpu_percent(cpu_result.output, dev_type)
+                if cpu_percent is None:
+                    errors.append(f"{cpu_cmd}: could not parse CPU%")
+                elif cpu_percent > CPU_THRESHOLD:
+                    event = {
+                        "device_name": device_name,
+                        "cpu_percent": cpu_percent,
+                        "alert_type": "CPU_HIGH",
+                        "severity": "MAJOR",
+                        "content": (
+                            f"CPU utilization at {cpu_percent}% on {device_name} "
+                            f"(threshold: {CPU_THRESHOLD}%)"
+                        ),
+                    }
+                    events.append(event)
+                    anomalies += 1
+                    logger.info(
+                        f"  [ANOMALY] {device_name}: CPU_HIGH — {cpu_percent}%"
+                    )
+                else:
+                    logger.info(f"  [OK] {device_name}: CPU at {cpu_percent}%")
+            else:
+                msg = (getattr(cpu_result, "output", "") or "no output")[:200]
+                errors.append(f"{cpu_cmd} failed: {msg}")
         except Exception as e:
             logger.warning(f"CPU check failed for {device_name}: {e}")
+            errors.append(f"{cpu_cmd} error: {e}")
 
-        return {
+        result = {
             "device_name": device_name,
             "device_ip": device_ip,
             "anomalies": anomalies,
             "events": events,
         }
+        if errors:
+            result["error"] = "; ".join(errors)
+        return result
 
     # ── Internal: persistence ────────────────────────────────
 
