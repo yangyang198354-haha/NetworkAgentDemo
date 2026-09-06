@@ -95,7 +95,7 @@ receive_alert → parse_alert → validate_alert ──[invalid]──→ finish
 
 ### API surface
 
-- **Legacy endpoints** (no auth): `/webhook/alert`, `/alerts/simulate`, `/approvals/pending`, `/approvals/{id}/decide`, `/workflow/{id}/state`, `/health`
+- **Legacy endpoints** (no auth): `/webhook/alert`, `/approvals/pending`, `/approvals/{id}/decide`, `/workflow/{id}/state`, `/health`
 - **Web UI API** (JWT-protected under `/api/*`): 8 routers — alerts, workflow, approvals, devices, inspection, knowledge, system config, dashboard
 - JWT tokens issued via `/auth/login`; all `/api/*` routes require `Authorization: Bearer <token>`.
 - SPA fallback: non-API routes serve `webui/dist/index.html`.

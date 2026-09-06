@@ -31,9 +31,8 @@ from fastapi import FastAPI, Depends, HTTPException
 from loguru import logger
 from pydantic import ValidationError as PydanticValidationError
 
-from src.models.alert import AlertPayload, AlertReceipt, Alert, DeviceInfo
+from src.models.alert import AlertPayload, AlertReceipt
 from src.models.state import ApprovalDecision, PendingApproval
-from src.models.enums import AlertType, AlertSeverity, AlertSource
 
 from src.security.config_manager import ConfigManager
 from src.security.audit_logger import AuditLogger
@@ -306,64 +305,6 @@ async def handle_webhook_alert(payload: AlertPayload):
     threading.Thread(target=run_workflow, daemon=True).start()
 
     return AlertReceipt(alert_id=alert.alert_id, status="ACCEPTED")
-
-
-@app.post("/alerts/simulate", deprecated=True)
-async def simulate_alert_legacy(
-    alert_type: str = "PORT_DOWN",
-    device_name: str = "Core-SW-01",
-    device_ip: str = "192.168.1.1",
-    interface: str = "Gi0/1",
-):
-    """
-    [DEPRECATED] 模拟告警端点（便捷测试接口）。
-    请使用 POST /api/alerts/simulate 替代。
-    """
-    try:
-        atype = AlertType(alert_type.upper())
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid alert_type: {alert_type}")
-
-    # 构造描述
-    descriptions = {
-        AlertType.MAC_FLAPPING: f"MAC地址 00:1A:2B:3C:4D:5E 在设备 {device_name} 的VLAN 1内发生漂移，"
-                                 f"出现在端口 Gi0/1 和 Gi0/2 之间。",
-        AlertType.PORT_DOWN: f"接口 {interface} 在设备 {device_name} 上状态变更为 down，"
-                              f"线路协议状态为 down (notconnect)。",
-        AlertType.CPU_HIGH: f"设备 {device_name} 的CPU利用率在5秒内达到92%，"
-                             f"超过告警阈值80%。SNMP ENGINE 进程消耗最高。",
-    }
-
-    alert = Alert(
-        alert_type=atype,
-        alert_severity=AlertSeverity.MAJOR,
-        alert_content=descriptions.get(atype, f"Simulated {alert_type} alert on {device_name}"),
-        device_info=DeviceInfo(
-            device_name=device_name,
-            device_ip=device_ip,
-            device_model="TP-Link T2600G-28TS",
-            interface_name=interface,
-            mac_address="00:1A:2B:3C:4D:5E" if atype == AlertType.MAC_FLAPPING else None,
-            cpu_percent=92.0 if atype == AlertType.CPU_HIGH else None,
-        ),
-        source=AlertSource.MOCK,
-    )
-
-    def run_workflow():
-        try:
-            result = state_graph_engine.run_workflow(alert)
-            logger.info(f"[Simulate] Workflow finished: {alert.alert_id} → {result.get('status')}")
-        except Exception as e:
-            logger.error(f"[Simulate] Workflow exception: {e}", exc_info=True)
-
-    threading.Thread(target=run_workflow, daemon=True).start()
-
-    return {
-        "message": "Simulated alert accepted (DEPRECATED — use POST /api/alerts/simulate)",
-        "alert_id": alert.alert_id,
-        "alert_type": alert.alert_type,
-        "warning": "This endpoint is deprecated, use POST /api/alerts/simulate instead",
-    }
 
 
 @app.get("/approvals/pending", response_model=list[PendingApproval])

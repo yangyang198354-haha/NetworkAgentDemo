@@ -93,19 +93,31 @@ curl http://localhost:8001/health
 
 ### 3.2 发送模拟告警
 
+> 新端点 `POST /api/alerts/simulate`（JSON Body）受 JWT 保护，先登录获取 token（默认账号 `admin` / `admin`，或 `.env` 的 `ADMIN_PASSWORD`）：
+
+```bash
+TOKEN=$(curl -s -X POST "http://localhost:8001/auth/login" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=admin" \
+  | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+```
+
 ```bash
 # ─── 端口 Down（自动执行，无需审批）───
-curl -X POST "http://localhost:8001/alerts/simulate" \
+curl -X POST "http://localhost:8001/api/alerts/simulate" \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"alert_type":"PORT_DOWN","device_name":"Core-SW-01","device_ip":"192.168.1.1","interface":"Gi0/1"}'
 
 # ─── CPU 过高（自动执行，无需审批）───
-curl -X POST "http://localhost:8001/alerts/simulate" \
+curl -X POST "http://localhost:8001/api/alerts/simulate" \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"alert_type":"CPU_HIGH","device_name":"Core-SW-01","device_ip":"192.168.1.1"}'
 
 # ─── MAC 漂移（高风险，触发审批）───
-curl -X POST "http://localhost:8001/alerts/simulate" \
+curl -X POST "http://localhost:8001/api/alerts/simulate" \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"alert_type":"MAC_FLAPPING","device_name":"Core-SW-01","device_ip":"192.168.1.1","interface":"Gi0/1"}'
 ```
@@ -113,7 +125,7 @@ curl -X POST "http://localhost:8001/alerts/simulate" \
 返回值：
 ```json
 {
-  "message": "Simulated alert accepted",
+  "message": "模拟告警已发送",
   "alert_id": "ALT-20260710-143052-a1b2c3d4",
   "alert_type": "PORT_DOWN"
 }
@@ -223,7 +235,7 @@ curl -s "http://localhost:8001/workflow/${ALERT_ID}/state" | python -m json.tool
 
 浏览器打开 **http://localhost:8001/docs**：
 
-1. `POST /alerts/simulate` → 点 "Try it out" → 选 `PORT_DOWN` → Execute
+1. `POST /api/alerts/simulate`（JWT 保护，先点 "Authorize" 填入登录 token）→ 点 "Try it out" → 选 `PORT_DOWN` → Execute
 2. `GET /workflow/{checkpoint_id}/state` → 输入返回的 `alert_id` → 查看状态
 3. `GET /approvals/pending` → 查看是否有挂起的审批
 4. `POST /approvals/{checkpoint_id}/decide` → 批准/拒绝
@@ -259,7 +271,8 @@ curl -s "http://localhost:8001/workflow/${ALERT_ID}/state" | python -m json.tool
 
 ```bash
 # 1. 发送 MAC 漂移告警（触发审批）
-curl -X POST "http://localhost:8001/alerts/simulate" \
+curl -X POST "http://localhost:8001/api/alerts/simulate" \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"alert_type":"MAC_FLAPPING","device_name":"Core-SW-01","device_ip":"192.168.1.1","interface":"Gi0/1"}'
 
@@ -342,8 +355,14 @@ python -m pytest tests/ -v --cov=src --cov-report=term-missing
 生产环境已部署在 **http://47.109.197.217:8001**，上述所有命令只需替换 `localhost` 为 `47.109.197.217`。
 
 ```bash
-# 远程触发（示例）
-curl -X POST "http://47.109.197.217:8001/alerts/simulate" \
+# 远程触发（示例，先登录拿 token）
+TOKEN=$(curl -s -X POST "http://47.109.197.217:8001/auth/login" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=admin" \
+  | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl -X POST "http://47.109.197.217:8001/api/alerts/simulate" \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"alert_type":"PORT_DOWN","device_name":"Core-SW-01","device_ip":"192.168.1.1","interface":"Gi0/1"}'
 
