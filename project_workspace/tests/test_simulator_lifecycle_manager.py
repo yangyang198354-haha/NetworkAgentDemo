@@ -14,8 +14,21 @@ class TestCheckPortUsed:
     """Unit tests for check_port_used() static method."""
 
     def test_free_port_returns_false(self):
-        """A high-numbered port that is unlikely to be used returns False."""
-        result = SimulatorLifecycleManager.check_port_used(54321)
+        """A port that is currently free returns False.
+
+        Uses an ephemeral port (bind to port 0) instead of a hardcoded one, so
+        the test is not flaky when a specific high port happens to be occupied
+        by another process on the host.
+        """
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        finally:
+            s.close()
+        time.sleep(0.1)
+        result = SimulatorLifecycleManager.check_port_used(port)
         assert result is False
 
     def test_occupied_port_returns_true(self):
