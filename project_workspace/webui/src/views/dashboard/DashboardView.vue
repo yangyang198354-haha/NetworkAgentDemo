@@ -134,9 +134,10 @@ const fixRatePieOption = computed(() => ({
     type: 'pie',
     radius: '70%',
     data: [
-      { name: '成功', value: store.fixRate?.closed_count || 0, itemStyle: { color: '#67C23A' } },
+      { name: '成功', value: store.fixRate?.success_count || 0, itemStyle: { color: '#67C23A' } },
       { name: '失败', value: store.fixRate?.failed_count || 0, itemStyle: { color: '#F56C6C' } },
-      { name: '拒绝', value: store.fixRate?.rejected_count || 0, itemStyle: { color: '#E6A23C' } },
+      { name: '被拒', value: store.fixRate?.rejected_count || 0, itemStyle: { color: '#E6A23C' } },
+      { name: '处理中/未完成', value: store.fixRate?.processing_count || 0, itemStyle: { color: '#909399' } },
     ],
   }],
 }))

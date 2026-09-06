@@ -21,11 +21,12 @@ export const useDashboardStore = defineStore('dashboard', () => {
       const resp: any = await client.get('/api/dashboard/stats', { params })
       alertStats.value = resp
       fixRate.value = {
-        closed_count: resp.closed_count || 0,
-        failed_count: resp.failed_count || 0,
-        rejected_count: resp.rejected_count || 0,
-        total_count: resp.total_count || 0,
-        success_rate: resp.fix_success_rate || 0,
+        success_count: resp.fix_stats?.success_count ?? resp.closed_count ?? 0,
+        failed_count: resp.fix_stats?.failed_count ?? resp.failed_count ?? 0,
+        rejected_count: resp.fix_stats?.rejected_count ?? resp.rejected_count ?? 0,
+        processing_count: resp.fix_stats?.processing_count ?? resp.processing_count ?? 0,
+        total_count: resp.fix_stats?.total_count ?? 0,
+        success_rate: resp.fix_stats?.success_rate ?? resp.fix_success_rate ?? 0,
       }
     } finally {
       loading.value = false
@@ -37,11 +38,12 @@ export const useDashboardStore = defineStore('dashboard', () => {
       params: { time_from: timeFrom, time_to: timeTo }
     })
     fixRate.value = {
-      closed_count: resp.closed_count || 0,
-      failed_count: resp.failed_count || 0,
-      rejected_count: resp.rejected_count || 0,
-      total_count: resp.total_count || 0,
-      success_rate: resp.fix_success_rate || 0,
+      success_count: resp.fix_stats?.success_count ?? resp.closed_count ?? 0,
+      failed_count: resp.fix_stats?.failed_count ?? resp.failed_count ?? 0,
+      rejected_count: resp.fix_stats?.rejected_count ?? resp.rejected_count ?? 0,
+      processing_count: resp.fix_stats?.processing_count ?? resp.processing_count ?? 0,
+      total_count: resp.fix_stats?.total_count ?? 0,
+      success_rate: resp.fix_stats?.success_rate ?? resp.fix_success_rate ?? 0,
     }
     return resp
   }
