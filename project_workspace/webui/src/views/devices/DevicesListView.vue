@@ -50,23 +50,31 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="400" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="showEditDialog(row)">编辑</el-button>
             <el-button text type="warning" @click="showCredentialDialog(row)">凭据</el-button>
-            <template v-if="row.device_type === 'REAL'">
-              <el-button text type="success" :loading="heartbeatIds.includes(row.id)" @click="handleHeartbeat(row)">心跳检测</el-button>
-              <el-button text type="primary" :loading="checkingIds.includes(row.id)" @click="handleCheckConnectivity(row)">连通性检测</el-button>
-              <el-button text type="primary" @click="showRealPanel(row)">面板</el-button>
-            </template>
-            <template v-if="row.device_type === 'SIMULATOR'">
-              <el-button v-if="row.simulator_status !== 'RUNNING'"
-                text type="success" @click="handleStartSimulator(row)">启动</el-button>
-              <el-button v-else
-                text type="danger" @click="handleStopSimulator(row)">停止</el-button>
-              <el-button text type="primary" @click="showSimulatorPanel(row)">面板</el-button>
-            </template>
-            <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-dropdown trigger="click" @command="(cmd: string) => handleCommand(cmd, row)">
+              <el-button text type="primary">
+                更多<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <template v-if="row.device_type === 'REAL'">
+                    <el-dropdown-item command="heartbeat" :disabled="heartbeatIds.includes(row.id)">心跳检测</el-dropdown-item>
+                    <el-dropdown-item command="connectivity" :disabled="checkingIds.includes(row.id)">连通性检测</el-dropdown-item>
+                    <el-dropdown-item command="real-panel">面板</el-dropdown-item>
+                  </template>
+                  <template v-if="row.device_type === 'SIMULATOR'">
+                    <el-dropdown-item command="toggle-sim">{{ row.simulator_status !== 'RUNNING' ? '启动' : '停止' }}</el-dropdown-item>
+                    <el-dropdown-item command="sim-panel">面板</el-dropdown-item>
+                  </template>
+                  <el-dropdown-item command="delete" divided>
+                    <span class="dropdown-danger">删除</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -422,6 +430,31 @@ async function handleDelete(row: any) {
   } catch { /* cancelled */ }
 }
 
+// 「更多」下拉操作分发：统一入口，按设备类型渲染对应命令
+function handleCommand(cmd: string, row: any) {
+  switch (cmd) {
+    case 'heartbeat':
+      handleHeartbeat(row)
+      break
+    case 'connectivity':
+      handleCheckConnectivity(row)
+      break
+    case 'real-panel':
+      showRealPanel(row)
+      break
+    case 'sim-panel':
+      showSimulatorPanel(row)
+      break
+    case 'toggle-sim':
+      if (row.simulator_status !== 'RUNNING') handleStartSimulator(row)
+      else handleStopSimulator(row)
+      break
+    case 'delete':
+      handleDelete(row)
+      break
+  }
+}
+
 function showCredentialDialog(row: any) {
   credDeviceId.value = row.id
   Object.assign(credForm, { ssh_username: 'admin', ssh_password: '', ssh_port: row.simulator_port || 22 })
@@ -689,4 +722,5 @@ function formatTime(t: string) {
 .sys-label { font-size: 13px; color: #606266; }
 .sys-value { font-size: 13px; color: #303133; margin-top: 2px; }
 .real-loading-hint { margin-top: 16px; text-align: center; font-size: 13px; color: #909399; }
+.dropdown-danger { color: var(--el-color-danger); }
 </style>
