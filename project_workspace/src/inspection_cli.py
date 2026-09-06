@@ -61,6 +61,14 @@ class CLIExitCode(enum.IntEnum):
 
 CPU_THRESHOLD = 80  # CPU utilization warning threshold (%)
 
+# ── PORT_DOWN 告警白名单（按 device_type）──────────────────────────
+# 实验室交换机的绝大多数端口未插网线、恒为 down，逐端口上报 PORT_DOWN 会产生大量
+# 噪声告警 + 工作流。仅对白名单内端口上报 PORT_DOWN；白名单为 None（缺省）表示
+# 全部上报，从而保留 MOCK/SIMULATOR 写死的异常端口行为。
+INSPECTION_PORT_WHITELIST: dict[str, frozenset[str]] = {
+    "REAL": frozenset({"Gi1/0/2"}),  # 唯一允许写入/关注的 REAL 端口
+}
+
 
 # ── MOD-INSP-003: Inspection CLI ─────────────────────────────────
 
@@ -474,6 +482,7 @@ class InspectionCLI:
         events: list[dict] = []
         anomalies = 0
         errors: list[str] = []
+        port_whitelist = INSPECTION_PORT_WHITELIST.get(dev_type)
 
         # 解析接入地址 + 凭据
         try:
@@ -515,6 +524,9 @@ class InspectionCLI:
                         parts = line.split()
                         if parts:
                             iface_name = parts[0]
+                            # 白名单过滤：仅对关注端口上报，抑制未插线端口噪声
+                            if port_whitelist is not None and iface_name not in port_whitelist:
+                                continue
                             event = {
                                 "device_name": device_name,
                                 "interface": iface_name,
