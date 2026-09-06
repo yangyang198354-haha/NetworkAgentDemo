@@ -59,7 +59,10 @@ TIMER_FILENAME = "networkagent-inspection.timer"
 TEMPLATES_DIR = "resources/templates/systemd"
 SERVICE_TEMPLATE = "networkagent-inspection.service.j2"
 TIMER_TEMPLATE = "networkagent-inspection.timer.j2"
-DEFAULT_USER = "networkagent"
+# 巡检服务需与 Web 服务（root）一致：SQLite DB（project_workspace/data/webui.db）
+# 由 root 所有，若以 networkagent 运行会报 "attempt to write a readonly database"。
+# 故默认用户定为 root，避免 config re-sync 时把已修复的 User=root 回退成 networkagent。
+DEFAULT_USER = "root"
 DEFAULT_PYTHON_BIN = "python3.11"
 DEFAULT_RESTART_SEC = 30
 DEFAULT_ACCURACY_SEC = 1

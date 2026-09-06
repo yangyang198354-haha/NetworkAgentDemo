@@ -109,6 +109,9 @@ class TestGenerateUnitFiles:
         content = manager.generate_service_unit({})
         assert "TimeoutStopSec=30" in content
         assert "python3.11" in content
+        # 默认用户须为 root（与 Web 服务一致），否则巡检会写只读 DB 失败
+        assert "User=root" in content
+        assert "Group=root" in content
 
     def test_generate_service_unit_custom_timeout(self, manager):
         """generate_service_unit honors custom timeout_seconds."""
