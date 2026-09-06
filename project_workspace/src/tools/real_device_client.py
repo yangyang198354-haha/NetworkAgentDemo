@@ -1983,15 +1983,25 @@ class _TelnetSession:
         # Give switch a chance to echo + start output
         time.sleep(min(0.3, wait))
         pager_hits = 0
+        scanned = 0  # bytes already consumed for pager detection
         while time.time() < deadline:
             read_available()
             combined = b"".join(chunks)
             decoded = combined.decode("utf-8", errors="replace")
-            if "Press any key to continue" in decoded:
+            # Only scan the *new* tail for the pager prompt. Scanning the full
+            # accumulated buffer re-detected the same "Press any key…" line every
+            # iteration and sent 'q' until the deadline, flooding the switch's
+            # input stream with 'q' and corrupting the NEXT command (real_panel
+            # `show cpu-utilization` → "Error: Bad command").
+            tail = combined[scanned:]
+            if "Press any key to continue" in tail.decode("utf-8", errors="replace"):
+                scanned = len(combined)  # consume this pager prompt
                 pager_hits += 1
                 try: send_bytes(b"q")
                 except Exception: pass
-                time.sleep(0.2)
+                time.sleep(0.25)
+                if pager_hits > 100:
+                    break
                 continue
             # Detect prompt back: lines ending with #, >, or (config)#
             lines = decoded.splitlines()
