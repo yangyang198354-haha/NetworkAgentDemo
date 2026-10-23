@@ -70,3 +70,7 @@ debug.log
 # OS
 .DS_Store
 Thumbs.db
+
+# SDLC agent suite: hook runtime state and raw knowledge inbox
+project_workspace/.hook_state/
+project_workspace/_kb_inbox.jsonl
